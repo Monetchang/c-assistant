@@ -5,11 +5,11 @@ from app.db.base_class import Base
 
 class User(Base):
     id = Column(Integer, primary_key=True, index=True)
-    full_name = Column(String, index=True)
+    user_name = Column(String, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean(), default=True)
     is_superuser = Column(Boolean(), default=False)
     
     # 关系
-    chats = relationship("Chat", back_populates="user") 
+    threads = relationship("Thread", back_populates="user", cascade="all, delete-orphan")
