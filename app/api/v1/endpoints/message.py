@@ -3,6 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app import crud, models, schemas
 from app.api import deps
+from app.core.agent import startChat
+from datetime import datetime
 
 router = APIRouter()
 
@@ -12,21 +14,27 @@ def create_message(
     db: Session = Depends(deps.get_db),
     thread_id: int,
     message_in: schemas.ChatMessageCreate,
-    current_user: models.User = Depends(deps.get_current_active_user),
+    # current_user: models.User = Depends(deps.get_current_active_user),
 ) -> Any:
     """
     在指定聊天中创建新消息
     """
-    thread = crud.thread.get(db=db, id=thread_id)
-    if not thread:
-        raise HTTPException(status_code=404, detail="Chat not found")
-    if not crud.thread.is_owner(thread=thread, user_id=current_user.id):
-        raise HTTPException(status_code=400, detail="Not enough permissions")
+    # thread = crud.thread.get(db=db, id=thread_id)
+    # if not thread:
+    #     raise HTTPException(status_code=404, detail="Chat not found")
+    # if not crud.thread.is_owner(thread=thread, user_id=current_user.id):
+    #     raise HTTPException(status_code=400, detail="Not enough permissions")
     
-    message = crud.chat_message.create_with_chat(
-        db=db, obj_in=message_in, thread_id=thread_id
+    # message = crud.chat_message.create_with_chat(
+    #     db=db, obj_in=message_in, thread_id=thread_id
+    # )
+    response = startChat(message_in.content)
+    return schemas.ChatMessage(
+        id=1,
+        thread_id=1,
+        content=response,
+        created_at=datetime.now()
     )
-    return message
 
 
 @router.get("/{thread_id}/messages", response_model=List[schemas.ChatMessage])
