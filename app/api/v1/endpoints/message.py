@@ -6,7 +6,7 @@ from app.api import deps
 
 router = APIRouter()
 
-@router.post("/{thread_id}/messages", response_model=schemas.ChatMessage)
+@router.post("/{thread_id}/chat", response_model=schemas.ChatMessage)
 def create_message(
     *,
     db: Session = Depends(deps.get_db),
