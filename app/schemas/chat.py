@@ -12,8 +12,8 @@ class ChatMessageCreate(ChatMessageBase):
 
 
 class ChatMessage(ChatMessageBase):
-    id: int
-    thread_id: int
+    id: str
+    thread_id: str
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -24,8 +24,15 @@ class UserInDBBase(UserBase):
     model_config = {"from_attributes": True}
 
 
-class User(UserInDBBase):
-    pass
+class User(BaseModel):
+    id: str
+    user_name: Optional[str] = None
+    email: str
+    is_active: bool = True
+    is_superuser: bool = False
+
+    class Config:
+        orm_mode = True
 
 
 class UserInDB(UserInDBBase):

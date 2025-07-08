@@ -1,6 +1,6 @@
 # CRUD operations package
-from .crud_user import user
-from .crud_thread import thread
-from .crud_chat import chat_message
+from .crud_user_mongo import CRUDUserMongo
+from .crud_thread_mongo import CRUDThreadMongo
+from .crud_chat_message_mongo import CRUDChatMessageMongo
 
-__all__ = ["user", "thread", "chat_message"] 
+__all__ = ["CRUDUserMongo", "CRUDThreadMongo", "CRUDChatMessageMongo"] 

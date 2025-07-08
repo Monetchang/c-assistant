@@ -8,9 +8,9 @@ from typing_extensions import TypedDict
 
 
 
-os.environ["DEEPSEEK_API_KEY"] = settings.DEESEEK_API_KEY
+os.environ["DEEPSEEK_API_KEY"] = settings.DEEPSEEK_API_KEY
 
-llm = ChatDeepSeek(model_name="deepseek-chat")
+llm = ChatDeepSeek(model="deepseek-chat")
 
 members = ["chat"]
 options = members + ["FINISH"]
@@ -57,7 +57,7 @@ builder.add_node("supervisor", supervisor)
 builder.add_node("chat", chat)
 
 for member in members:
-    # 我们希望我们的工人在完成工作后总是向主管“汇报”
+    # 我们希望我们的工人在完成工作后总是向主管"汇报"
     builder.add_edge(member, "supervisor")
 
 builder.add_conditional_edges("supervisor", lambda state: state["next"])
@@ -68,14 +68,14 @@ builder.add_edge(START, "supervisor")
 # 编译图
 graph = builder.compile()
 
-def stream_graph_updates(user_input: str):
-    all_chunk = []
-    for chunk in graph.stream({"messages": [{"role": "user", "content": user_input}]}, stream_mode="values"):
-        all_chunk.append(chunk)
-    return all_chunk
+# def stream_graph_updates(user_input: str):
+#     all_chunk = []
+#     for chunk in graph.stream({"messages": [HumanMessage(content=user_input)]}, stream_mode="values"):
+#         all_chunk.append(chunk)
+#     return all_chunk
 
-def startChat (user_input: str):
-    response = graph.invoke({"messages": [{"role": "user", "content": user_input}]})
+def startChat(user_input: str):
+    response = graph.invoke({"messages": [HumanMessage(content=user_input)], "next": ""})
     print(response['messages'][-1].content)
     ans = response['messages'][-1].content
     return ans

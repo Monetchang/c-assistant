@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from app.schemas.chat import ChatMessage
 
 class ThreadBase(BaseModel):
-    title: Optional[str] = None
+    pass
 
 
 class ThreadCreate(ThreadBase):
@@ -16,8 +16,8 @@ class ThreadUpdate(ThreadBase):
 
 
 class Thread(ThreadBase):
-    id: int
-    user_id: int
+    id: str
+    user_id: str
     created_at: datetime
     updated_at: Optional[datetime] = None
     is_active: bool

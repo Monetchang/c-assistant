@@ -1,6 +1,6 @@
 # Models package
-from .user import User
-from .thread import Thread
-from .chat import ChatMessage
+from .user_mongo import UserMongo
+from .thread_mongo import ThreadMongo
+from .chat_message_mongo import ChatMessageMongo
 
-__all__ = ["User", "Thread", "ChatMessage"] 
+__all__ = ["UserMongo", "ThreadMongo", "ChatMessageMongo"] 
