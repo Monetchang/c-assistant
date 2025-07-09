@@ -10,14 +10,14 @@ from app.core.agent import AgentCore
 
 router = APIRouter()
 
-@router.post("/{thread_id}/chat", response_model=ChatMessage)
+@router.post("/{thread_id}/chat", response_model=ChatMessageContent)
 async def chat(
     *,
     thread_id: str,
     message_in: ChatMessageContent, 
 ) -> str:
-    response = AgentCore.start_chat(message_in.content, thread_id)
-    return response
+    content = AgentCore.start_chat(message_in.content, thread_id)
+    return ChatMessageContent(content = content)
 
 
 async def create_message(

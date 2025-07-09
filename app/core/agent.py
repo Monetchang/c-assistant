@@ -3,7 +3,7 @@ from app.core.config import settings
 from langchain_deepseek import ChatDeepSeek
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langchain_core.messages import AnyMessage, SystemMessage, HumanMessage, ToolMessage
-from typing import Literal
+from typing import Any, Literal
 from typing_extensions import TypedDict
 from langgraph.checkpoint.mongodb import MongoDBSaver
 
@@ -47,66 +47,53 @@ class AgentNode():
         return {"next": next_}
 
     def chat(state: AgentState):
-        messages = state["messages"][-1]
-        model_response = llm.invoke(messages.content)
-        final_response = [HumanMessage(content=model_response.content, name="chat")]   # 这里要添加名称
-        return {"messages": final_response}
+        # messages = state["messages"][-1]
+        # model_response = llm.invoke(messages.content)
+        # final_response = [HumanMessage(content=model_response.content, name="chat")]   # 这里要添加名称
+        # return {"messages": final_response}
+        response = llm.invoke(state["messages"])
+        return {"messages": response}
+        
     
 class AgentCore():
-    with MongoDBSaver.from_conn_string(settings.MONGODB_URL) as checkpointer:
-        builder = StateGraph(AgentState)
+    def start_chat(user_input: str, thread_id: str) -> Any:
+        with MongoDBSaver.from_conn_string(settings.MONGODB_URL) as checkpointer:
+            builder = StateGraph(AgentState)
 
-        # builder.add_edge(START, "supervisor")
-        builder.add_node("supervisor", AgentNode.supervisor)
-        builder.add_node("chat", AgentNode.chat)
+            # builder.add_edge(START, "supervisor")
+            builder.add_node("supervisor", AgentNode.supervisor)
+            builder.add_node("chat", AgentNode.chat)
 
-        for member in members:
-            # 我们希望我们的工人在完成工作后总是向主管"汇报"
-            builder.add_edge(member, "supervisor")
+            for member in members:
+                # 我们希望我们的工人在完成工作后总是向主管"汇报"
+                builder.add_edge(member, "supervisor")
 
-        builder.add_conditional_edges("supervisor", lambda state: state["next"])
+            builder.add_conditional_edges("supervisor", lambda state: state["next"])
 
-        # 添加开始和节点
-        builder.add_edge(START, "supervisor")
+            # 添加开始和节点
+            builder.add_edge(START, "supervisor")
 
-        # 编译图
-        graph = builder.compile()
-
-    # def stream_graph_updates(user_input: str):
-    #     all_chunk = []
-    #     for chunk in graph.stream({"messages": [HumanMessage(content=user_input)]}, stream_mode="values"):
-    #         all_chunk.append(chunk)
-    #     return all_chunk
-
-    def start_chat(user_input: str, thread_id: str):
-        config = {
-            "configurable": {
-                "thread_id": thread_id
+            # 编译图
+            graph = builder.compile(checkpointer=checkpointer)
+            config = {
+                "configurable": {
+                    "thread_id": thread_id
+                }
             }
-        }
 
-        for chunk in AgentCore.graph.stream(
-            {"messages": [{"role": "user", "content": "hi! 我是 Mike"}]},
-            config,
-            stream_mode="values"
-        ):
-            chunk["messages"][-1].pretty_print()
+            for chunk in graph.stream(
+                {"messages": [{"role": "user", "content": user_input}]},
+                config,
+                stream_mode="values"
+            ):
+                print("first ====>", chunk["messages"][-1])
+                # chunk["messages"][-1].pretty_print()
 
-        for chunk in AgentCore.graph.stream(
-            {"messages": [{"role": "user", "content": "我叫什么?"}]},
-            config,
-            stream_mode="values"
-        ):
-            chunk["messages"][-1].pretty_print()
-        # response = AgentCore.graph.invoke({"messages": [HumanMessage(content=user_input)], "next": ""})
-        # print(response['messages'][-1].content)
-        # ans = response['messages'][-1].content
-        # return ans
-        # stream_graph_updates(user_input)
-        # while True:
-            # try:
-                
-            # except:
-            #     print("Error: Failed to stream graph updates")
-            #     break
-
+            # for chunk in graph.stream(
+            #     {"messages": [{"role": "user", "content": "我叫什么?"}]},
+            #     config,
+            #     stream_mode="values"
+            # ):
+            #     print("second ====>", chunk["messages"][-1])
+                # chunk["messages"][-1].pretty_print()
+            return ""
