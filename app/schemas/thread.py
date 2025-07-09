@@ -29,6 +29,5 @@ class ThreadWithMessages(Thread):
     messages: List[ChatMessage] = []
 
 
-class ThreadResponse(BaseModel):
-    chat: Thread
-    messages: List[ChatMessage] 
+class ThreadResponse(ThreadBase):
+    pass

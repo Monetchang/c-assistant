@@ -6,10 +6,11 @@ from pydantic import BaseModel
 class ChatMessageBase(BaseModel):
     content: str
 
-
-class ChatMessageCreate(ChatMessageBase):
+class ChatMessageContent(ChatMessageBase):
     pass
 
+class ChatMessageCreate(ChatMessageBase):
+    role: str
 
 class ChatMessage(ChatMessageBase):
     id: str

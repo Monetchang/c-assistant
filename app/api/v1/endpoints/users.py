@@ -5,6 +5,7 @@ from motor.motor_asyncio import AsyncIOMotorCollection
 from app.schemas.user import User, UserCreate, UserUpdate
 from app.api.deps import get_user_collection
 from app.crud.crud_user_mongo import CRUDUserMongo
+from app.schemas.user import UserResponse
 
 router = APIRouter()
 
@@ -17,13 +18,13 @@ async def read_users(
     """
     Retrieve users.
     """
-    crud_user = CRUDUserMongo(collection)
     cursor = collection.find().skip(skip).limit(limit)
+    print("cursor:", cursor)
     users = [User(**doc) async for doc in cursor]
     return users
 
 
-@router.post("/", response_model=User)
+@router.post("/", response_model=UserResponse)
 async def create_user(
     *,
     collection: AsyncIOMotorCollection = Depends(get_user_collection),

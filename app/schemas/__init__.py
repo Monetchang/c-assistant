@@ -2,11 +2,11 @@
 from .token import Token, TokenPayload
 from .user import User, UserCreate, UserUpdate, UserInDB
 from .thread import Thread, ThreadCreate, ThreadUpdate, ThreadWithMessages
-from .chat import ChatMessage, ChatMessageCreate
+from .chat import ChatMessage, ChatMessageCreate, ChatMessageContent
 
 __all__ = [
     "Token", "TokenPayload",
     "User", "UserCreate", "UserUpdate", "UserInDB",
-    "Thread", "ThreadCreate", "ThreadUpdate", 
-    "ChatMessage", "ChatMessageCreate", "ThreadWithMessages"
+    "Thread", "ThreadCreate", "ThreadUpdate", "ThreadWithMessages",
+    "ChatMessage", "ChatMessageCreate", "ChatMessageContent"
 ] 

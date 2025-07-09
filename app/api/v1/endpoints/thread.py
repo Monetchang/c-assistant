@@ -6,11 +6,12 @@ from app.schemas.chat import ChatMessage
 from app.api.deps import get_thread_collection, get_message_collection
 from app.crud.crud_thread_mongo import CRUDThreadMongo
 from app.crud.crud_chat_message_mongo import CRUDChatMessageMongo
+from app.schemas.thread import ThreadResponse
 
 router = APIRouter()
 
 
-@router.get("/", response_model=List[Thread])
+@router.get("/", response_model=List[ThreadResponse])
 async def read_chats(
     collection: AsyncIOMotorCollection = Depends(get_thread_collection),
     user_id: Optional[str] = None,
@@ -27,7 +28,7 @@ async def read_chats(
     return threads
 
 
-@router.post("/", response_model=Thread)
+@router.post("/", response_model=ThreadResponse)
 async def create_chat(
     *,
     collection: AsyncIOMotorCollection = Depends(get_thread_collection),

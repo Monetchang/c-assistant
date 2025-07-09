@@ -10,7 +10,7 @@ mongodb = MongoDB()
 def get_database():
     if mongodb.client is None:
         raise RuntimeError("MongoDB client is not connected")
-    return mongodb.client["your_db_name"]  # 替换为你的数据库名
+    return mongodb.client["agent"]  # 替换为你的数据库名
 
 async def connect_to_mongo():
     mongodb.client = AsyncIOMotorClient(settings.MONGODB_URL)

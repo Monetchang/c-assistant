@@ -3,6 +3,7 @@ from motor.motor_asyncio import AsyncIOMotorCollection
 from app.models.user_mongo import UserMongo
 from app.core.security import get_password_hash, verify_password
 from bson import ObjectId
+from app.schemas.user import UserResponse
 
 class CRUDUserMongo:
     def __init__(self, collection: AsyncIOMotorCollection):
@@ -16,14 +17,18 @@ class CRUDUserMongo:
         doc = await self.collection.find_one({"email": email})
         return UserMongo(**doc) if doc else None
 
-    async def create(self, user_data) -> UserMongo:
+    async def create(self, user_data) -> UserResponse:
         user_data["hashed_password"] = get_password_hash(user_data["password"])
         del user_data["password"]
+        print("user_data:", user_data)
         result = await self.collection.insert_one(user_data)
         user = await self.collection.find_one({"_id": result.inserted_id})
         if not user:
             raise ValueError("Failed to create user")
-        return UserMongo.parse_obj(user)
+        return UserResponse(
+            id = str(user["_id"]),
+            email=user["email"]
+        )
 
     async def authenticate(self, email: str, password: str) -> Optional[UserMongo]:
         user = await self.get_by_email(email)
@@ -46,4 +51,4 @@ class CRUDUserMongo:
             {"$set": update_data}
         )
         doc = await self.collection.find_one({"_id": ObjectId(id)})
-        return UserMongo.parse_obj(doc) if doc else None 
+        return UserMongo(**doc) if doc else None 
