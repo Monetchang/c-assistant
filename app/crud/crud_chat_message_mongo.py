@@ -13,7 +13,7 @@ class CRUDChatMessageMongo:
         return [ChatMessageMongo.parse_obj(doc) async for doc in cursor]
 
     async def create_with_chat(self, obj_in: dict, thread_id: str) -> ChatMessageMongo:
-        obj_in["thread_id"] = ObjectId(thread_id)
+        obj_in["thread_id"] = thread_id
         obj_in["created_at"] = datetime.utcnow()
         result = await self.collection.insert_one(obj_in)
         doc = await self.collection.find_one({"_id": result.inserted_id})

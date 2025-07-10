@@ -21,7 +21,7 @@ class CRUDThreadMongo:
         obj_in["is_active"] = True
         result = await self.collection.insert_one(obj_in)
         doc = await self.collection.find_one({"_id": result.inserted_id})
-        return ThreadResponse(id=str(doc["_id"]))
+        return ThreadResponse()
 
     async def get_by_id(self, thread_id: str) -> Optional[ThreadMongo]:
         doc = await self.collection.find_one({"_id": ObjectId(thread_id)})
