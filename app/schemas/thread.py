@@ -1,14 +1,14 @@
 from typing import Optional, List
 from datetime import datetime
-from pydantic import BaseModel
-from app.schemas.chat import ChatMessage
+from pydantic import BaseModel, Field
+from app.schemas.chat_message import ChatMessage
 
 class ThreadBase(BaseModel):
-    pass
+    title: str
 
 
 class ThreadCreate(ThreadBase):
-    title: str
+    pass
 
 
 class ThreadUpdate(ThreadBase):

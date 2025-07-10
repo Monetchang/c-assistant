@@ -14,6 +14,7 @@ class ChatMessageCreate(ChatMessageBase):
 
 class ChatMessage(ChatMessageBase):
     id: str
+    role: str
     thread_id: str
     created_at: datetime
 

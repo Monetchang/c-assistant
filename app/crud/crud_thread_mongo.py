@@ -3,15 +3,15 @@ from motor.motor_asyncio import AsyncIOMotorCollection
 from app.models.thread_mongo import ThreadMongo
 from bson import ObjectId
 from datetime import datetime
-from app.schemas.thread import ThreadResponse
+from app.schemas.thread import ThreadResponse, Thread
 
 class CRUDThreadMongo:
     def __init__(self, collection: AsyncIOMotorCollection):
         self.collection = collection
 
-    async def get_by_user(self, user_id: str, skip: int = 0, limit: int = 100) -> List[ThreadMongo]:
-        cursor = self.collection.find({"user_id": ObjectId(user_id), "is_active": True}).skip(skip).limit(limit).sort("updated_at", -1)
-        return [ThreadMongo(**doc) async for doc in cursor]
+    async def get_by_user(self, user_id: str, skip: int = 0, limit: int = 100) -> List[Thread]:
+        cursor = self.collection.find({"user_id": user_id, "is_active": True}).skip(skip).limit(limit).sort("updated_at", -1)
+        return [Thread(**{**doc, "id": str(doc["_id"])}) async for doc in cursor]
 
     async def create_with_user(self, obj_in: dict, user_id: str) -> ThreadResponse:
         if obj_in["title"] == "":

@@ -1,7 +1,7 @@
 from typing import Any, List
 from fastapi import APIRouter, Depends, HTTPException
 from motor.motor_asyncio import AsyncIOMotorCollection
-from app.schemas.chat import ChatMessage, ChatMessageCreate,ChatMessageContent
+from app.schemas.chat_message import ChatMessage, ChatMessageCreate,ChatMessageContent
 from app.api.deps import get_message_collection
 from app.crud.crud_chat_message_mongo import CRUDChatMessageMongo
 from app.crud.crud_thread_mongo import CRUDThreadMongo
