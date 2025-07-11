@@ -1,18 +1,29 @@
 import os
+from typing import Any, Optional
 from pydantic import BaseModel, Field
 from app.core.config import settings
 from langchain_deepseek import ChatDeepSeek
 
-class AgentBase(BaseModel):
-    def __init__(self):
-        os.environ["DEEPSEEK_API_KEY"] = settings.DEEPSEEK_API_KEY
 
-        self.llm = ChatDeepSeek(model="deepseek-chat")
+class AgentBase(BaseModel):
+    """代理基类，提供基础的LLM配置和初始化功能"""
+    
+    deepseek_llm: Optional[ChatDeepSeek] = None
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        self._initialize_llm()
         
-    def initialize_agent(self) -> "BaseAgent":
-        """Initialize agent with default settings if not provided."""
-        if self.llm is None or not isinstance(self.llm, LLM):
-            self.llm = LLM(config_name=self.name.lower())
-        if not isinstance(self.memory, Memory):
-            self.memory = Memory()
-        return self
+    def _initialize_llm(self) -> None:
+        """初始化DeepSeek LLM"""
+        os.environ["DEEPSEEK_API_KEY"] = settings.DEEPSEEK_API_KEY
+        self.deepseek_llm = ChatDeepSeek(model="deepseek-chat")
+        
+    def initialize_agent(self) -> Any:
+        """
+        初始化代理，子类应该重写此方法
+        
+        Returns:
+            配置好的代理实例
+        """
+        raise NotImplementedError("Subclasses must implement initialize_agent method")

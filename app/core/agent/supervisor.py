@@ -1,114 +1,131 @@
 import os
+from typing import Any, Literal, Optional, Dict, List, Sequence
+from typing_extensions import TypedDict
+from datetime import datetime
+
 from app.core.config import settings
 from langchain_deepseek import ChatDeepSeek
 from langgraph.graph import StateGraph, MessagesState, START, END
 from fastapi import APIRouter, Depends, HTTPException
 from langchain_core.messages import AnyMessage, SystemMessage, HumanMessage, ToolMessage
-from typing import Any, Literal, Optional
-from typing_extensions import TypedDict
-from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorCollection
+
 from app.db.mongodb import get_database
 from app.api.deps import get_message_collection
 from app.crud.crud_chat_message_mongo import CRUDChatMessageMongo
-import requests
-import json
+from app.core.agent.base import AgentBase
+from app.core.agent.search import SearchAgent
+# 定义常量
+MEMBERS = ["chat", "search"]
+OPTIONS = ["chat", "search", "FINISH"]
 
-os.environ["DEEPSEEK_API_KEY"] = settings.DEEPSEEK_API_KEY
-
-llm = ChatDeepSeek(model="deepseek-chat")
-
-members = ["chat"]
-options = ["chat", "FINISH"]
 
 class AgentState(MessagesState):
+    """代理状态类，继承自MessagesState并添加next字段"""
     next: str
 
+
 class Router(TypedDict):
-    """Worker to route to next. If no workers needed, route to FINISH"""
-    next: Literal["chat", "FINISH"]
+    """路由器类型定义，用于决定下一步操作"""
+    next: Literal["chat", "search", "FINISH"]
 
-def supervisor(state: AgentState):
-    system_prompt = (
-        "You are a supervisor tasked with managing a conversation between the"
-        f" following workers: {members}.\n\n"
-        "Each worker has a specific role:\n"
-        "- chat: Responds directly to user inputs using natural language.\n"
-        "Given the following user request, respond with the worker to act next."
-        " Each worker will perform a task and respond with their results and status."
-        " When finished, respond with FINISH."
-    )
 
-    messages = [SystemMessage(content=system_prompt)] + state["messages"]
-
-    response = llm.with_structured_output(Router).invoke(messages)
-
-    next_ = response["next"]
+class Supervisor(AgentBase):
+    """监督者代理类，负责协调不同工作节点的执行"""
     
-    if next_ == "FINISH":
-        next_ = END
+    graph: Optional[Any] = None
     
-    return {"next": next_}
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Ensure deepseek_llm is initialized
+        if self.deepseek_llm is None:
+            os.environ["DEEPSEEK_API_KEY"] = settings.DEEPSEEK_API_KEY
+            self.deepseek_llm = ChatDeepSeek(model="deepseek-chat")
+        self.graph = self.initialize_agent()
 
-def chat(state: AgentState):
-    model_response = llm.invoke(state["messages"])
-    final_response = [HumanMessage(content=model_response.content, name="chatbot")]
-    return {"messages": final_response}
-    
-
-def create_graph():
-    builder = StateGraph(AgentState)
-    
-    builder.add_node("supervisor", supervisor)
-    builder.add_node("chat", chat)
-
-    for member in members:
-        builder.add_edge(member, "supervisor")
-
-    builder.add_conditional_edges("supervisor", lambda state: state["next"])
-    builder.add_edge(START, "supervisor")
-    
-    return builder.compile()
-
-async def save_chat_to_mongodb(
-    *,
-    thread_id: str, 
-    user_input: str, 
-    assistant_response: str,
-    collection: AsyncIOMotorCollection = Depends(get_message_collection),
-) -> Any:
-    """保存聊天记录到 MongoDB"""
-    try:
-        crud_message = CRUDChatMessageMongo(collection)
-        # 保存用户消息
-        user_message = {
-            "role": "user",
-            "content": user_input,
-        }
-        await crud_message.create_with_chat(user_message, thread_id)
+    def initialize_agent(self) -> Any:
+        """
+        初始化代理图
         
-        # 保存助手回复
-        assistant_message = {
-            "role": "assistant", 
-            "content": assistant_response,
-        }
-        await crud_message.create_with_chat(assistant_message, thread_id)
-        print(f"Chat saved to MongoDB for thread: {thread_id}")
-    except Exception as e:
-        print(f"Error saving chat to MongoDB: {e}")
+        Returns:
+            编译后的状态图
+        """
+        builder = StateGraph(AgentState)
+    
+        # 添加节点
+        builder.add_node("supervisor", self.supervisor)
+        builder.add_node("chat", self.chat)
+        builder.add_node("search", SearchAgent().initialize_agent())
 
-async def async_start_chat(
-    *,
-    user_input: str, 
-    thread_id: str,
-    collection: AsyncIOMotorCollection = Depends(get_message_collection),
-) -> str:
-    """启动聊天并持久化到 MongoDB"""
-    try:
-        # 获取同 thread_id 的所有历史消息
-        crud_message = CRUDChatMessageMongo(collection)
-        history_messages = await crud_message.get_by_chat(thread_id)
-        # 构建完整的消息列表
+        # 添加边
+        for member in MEMBERS:
+            builder.add_edge(member, "supervisor")
+
+        # 添加条件边
+        builder.add_conditional_edges("supervisor", lambda state: state["next"])
+        builder.add_edge(START, "supervisor")
+        
+        return builder.compile()
+
+    async def async_start_chat(
+        self,
+        *,
+        user_input: str, 
+        thread_id: str,
+        collection: AsyncIOMotorCollection = Depends(get_message_collection),
+    ) -> str:
+        """
+        启动聊天并持久化到 MongoDB
+        
+        Args:
+            user_input: 用户输入
+            thread_id: 线程ID
+            collection: MongoDB集合
+            
+        Returns:
+            助手的回复
+        """
+        try:
+            # 获取历史消息
+            crud_message = CRUDChatMessageMongo(collection)
+            history_messages = await crud_message.get_by_chat(thread_id)
+            
+            # 构建完整的消息列表
+            all_messages = self._build_message_list(history_messages, user_input)
+            
+            # 创建图并编译
+            if not self.graph:
+                self.graph = self.initialize_agent()
+            
+            # 流式处理聊天
+            final_response = await self._process_chat_stream(all_messages)
+            
+            # 保存聊天记录
+            if final_response and collection is not None:
+                await self._save_chat_to_mongodb(
+                    thread_id=thread_id, 
+                    user_input=user_input, 
+                    assistant_response=final_response, 
+                    collection=collection
+                )
+            
+            return final_response
+        
+        except Exception as e:
+            print(f"Error in start_chat: {e}")
+            return f"Error: {str(e)}"
+
+    def _build_message_list(self, history_messages: List[Any], user_input: str) -> List[AnyMessage]:
+        """
+        构建消息列表
+        
+        Args:
+            history_messages: 历史消息
+            user_input: 用户输入
+            
+        Returns:
+            完整的消息列表
+        """
         all_messages = []
         
         # 添加历史消息
@@ -119,34 +136,123 @@ async def async_start_chat(
                 all_messages.append(SystemMessage(content=msg.content))
         
         # 添加当前用户输入
-        current_user_message = HumanMessage(content=user_input)
-        all_messages.append(current_user_message)
+        all_messages.append(HumanMessage(content=user_input))
         
-        # 创建图并编译
-        graph = create_graph()
-        print("all_messages: \n", all_messages)
-        # 流式处理聊天，传入完整的历史消息
-        final_response = ""
-        for chunk in graph.stream(
-            {"messages": all_messages},
-            stream_mode="values"
-        ):
-            if "messages" in chunk and chunk["messages"]:
-                last_message = chunk["messages"][-1]
-                if hasattr(last_message, 'content'):
-                    final_response = last_message.content
-                    print(f"Chat response: {final_response}")
+        return all_messages
 
-        # 保存聊天记录到 MongoDB
-        if final_response and collection is not None:
-            await save_chat_to_mongodb(
-                thread_id = thread_id, 
-                user_input = user_input, 
-                assistant_response = final_response, 
-                collection = collection
-            )
-        return final_response
+    async def _process_chat_stream(self, all_messages: List[AnyMessage]) -> str:
+        """
+        处理聊天流
         
-    except Exception as e:
-        print(f"Error in start_chat: {e}")
-        return f"Error: {str(e)}"
+        Args:
+            all_messages: 所有消息
+            
+        Returns:
+            最终回复
+        """
+        final_response = ""
+        
+        # 创建初始状态，包含next字段
+        initial_state = AgentState(
+            messages=all_messages,
+            next="supervisor"  # 设置初始next值
+        )
+        
+        if self.graph:
+            for chunk in self.graph.stream(
+                initial_state,
+                stream_mode="values"
+            ):
+                if "messages" in chunk and chunk["messages"]:
+                    last_message = chunk["messages"][-1]
+                    print(f"Chat last_message: {last_message}")
+                    if hasattr(last_message, 'content'):
+                        final_response = last_message.content
+        
+        return final_response
+
+    async def _save_chat_to_mongodb(
+        self,
+        *,
+        thread_id: str, 
+        user_input: str, 
+        assistant_response: str,
+        collection: AsyncIOMotorCollection,
+    ) -> None:
+        """
+        保存聊天记录到 MongoDB
+        
+        Args:
+            thread_id: 线程ID
+            user_input: 用户输入
+            assistant_response: 助手回复
+            collection: MongoDB集合
+        """
+        try:
+            crud_message = CRUDChatMessageMongo(collection)
+            
+            # 保存用户消息
+            user_message = {
+                "role": "user",
+                "content": user_input,
+            }
+            await crud_message.create_with_chat(user_message, thread_id)
+            
+            # 保存助手回复
+            assistant_message = {
+                "role": "assistant", 
+                "content": assistant_response,
+            }
+            await crud_message.create_with_chat(assistant_message, thread_id)
+            
+            print(f"Chat saved to MongoDB for thread: {thread_id}")
+            
+        except Exception as e:
+            print(f"Error saving chat to MongoDB: {e}")
+
+    def supervisor(self, state: AgentState) -> Dict[str, str]:
+        """
+        监督者节点，决定下一步操作
+        
+        Args:
+            state: 当前状态
+            
+        Returns:
+            包含下一步操作的状态
+        """
+        system_prompt = (
+            "You are a supervisor tasked with managing a conversation between the"
+            f" following workers: {MEMBERS}.\n\n"
+            "Each worker has a specific role:\n"
+            "- chat: Responds directly to user inputs using natural language.\n"
+            "Given the following user request, respond with the worker to act next."
+            " Each worker will perform a task and respond with their results and status."
+            " When finished, respond with FINISH."
+        )
+
+        messages = [SystemMessage(content=system_prompt)] + state["messages"]
+
+        assert self.deepseek_llm is not None, "deepseek_llm should be initialized"
+        response = self.deepseek_llm.with_structured_output(Router).invoke(messages)
+
+        next_ = response["next"]
+        
+        if next_ == "FINISH":
+            next_ = END
+        
+        return {"next": next_}
+
+    def chat(self, state: AgentState) -> Dict[str, Sequence[AnyMessage]]:
+        """
+        聊天节点，生成回复
+        
+        Args:
+            state: 当前状态
+            
+        Returns:
+            包含回复消息的状态
+        """
+        assert self.deepseek_llm is not None, "deepseek_llm should be initialized"
+        model_response = self.deepseek_llm.invoke(state["messages"])
+        final_response = [HumanMessage(content=model_response.content, name="chatbot")]
+        return {"messages": final_response}

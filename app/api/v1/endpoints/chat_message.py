@@ -6,7 +6,7 @@ from app.api.deps import get_message_collection
 from app.crud.crud_chat_message_mongo import CRUDChatMessageMongo
 from app.crud.crud_thread_mongo import CRUDThreadMongo
 from app.api.deps import get_thread_collection
-from app.core.agent import async_start_chat
+from app.core.agent.supervisor import Supervisor
 from app.models.user_mongo import UserMongo
 from app.api.deps import get_current_active_user
 
@@ -30,7 +30,8 @@ async def chat(
         raise HTTPException(status_code=403, detail="Not enough permissions to access this chat")
     
     # 异步调用 start_chat 获取助手回复
-    assistant_response = await async_start_chat(
+    supervisor = Supervisor()
+    assistant_response = await supervisor.async_start_chat(
         collection=collection,
         thread_id=thread_id,
         user_input=message_in.content

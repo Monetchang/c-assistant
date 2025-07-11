@@ -30,4 +30,4 @@ class ThreadWithMessages(Thread):
 
 
 class ThreadResponse(ThreadBase):
-    pass
+    id: str

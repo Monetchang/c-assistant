@@ -1,33 +1,74 @@
 from typing import List
-from search.base import WebSearchBase, SearchItem
+from app.core.tools.search.base import SearchItem
 import requests
 import json
+from langchain_core.tools import tool
 from app.core.config import settings
 
-class GoogleSearch(WebSearchBase):
-    """
-        Google search.
 
-        Returns results formatted according to SearchItem model.
-    """
+class GoogleSearchEngine:
+    """Google搜索引擎"""
+    
+    @tool()
     def perform_search(
         self, query: str, num_results: int = 10, *args, **kwargs
     ) -> List[SearchItem]:
-        url = "https://google.serper.dev/search"
-
-        payload = json.dumps({
-            "q": "apple inc"
-        })
-        headers = {
-            'X-API-KEY': settings.GOOGLE_API_KEY,
-            'Content-Type': 'application/json'
-        }
-
-        response = requests.request("POST", url, headers=headers, data=payload)
-
-        data = json.loads(response.text)  # 将返回的JSON字符串转换为字典
+        """
+        执行Google搜索
         
-        if 'organic' in data:
-            return json.dumps(data['organic'],  ensure_ascii=False)  # 返回'organic'部分的JSON字符串
-        else:
-            return json.dumps({"error": "No organic results found"},  ensure_ascii=False)  # 如果没有'organic'键，返回错误信息
+        Args:
+            query: 搜索查询
+            num_results: 返回结果数量
+            
+        Returns:
+            搜索结果列表
+        """
+        try:
+            url = "https://google.serper.dev/search"
+
+            payload = json.dumps({
+                "q": query,
+                "num": num_results
+            })
+            headers = {
+                'X-API-KEY': settings.GOOGLE_API_KEY,
+                'Content-Type': 'application/json'
+            }
+
+            response = requests.post(url, headers=headers, data=payload)
+            response.raise_for_status()  # 检查HTTP错误
+            
+            data = response.json()
+            
+            results = []
+            if 'organic' in data:
+                for item in data['organic'][:num_results]:
+                    results.append(SearchItem(
+                        title=item.get('title', 'No title'),
+                        link=item.get('link', ''),
+                        summary=item.get('snippet', '')
+                    ))
+            else:
+                # 如果没有organic结果，返回错误信息
+                results.append(SearchItem(
+                    title="No results found",
+                    link="",
+                    summary="No organic results found for the query"
+                ))
+                
+            return results
+            
+        except requests.RequestException as e:
+            # 处理网络请求错误
+            return [SearchItem(
+                title="Search Error",
+                link="",
+                summary=f"Network error: {str(e)}"
+            )]
+        except Exception as e:
+            # 处理其他错误
+            return [SearchItem(
+                title="Search Error",
+                link="",
+                summary=f"Error: {str(e)}"
+            )]
