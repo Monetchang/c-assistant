@@ -7,17 +7,20 @@ from app.core.config import settings
 from langchain_deepseek import ChatDeepSeek
 from langgraph.graph import StateGraph, MessagesState, START, END
 from fastapi import APIRouter, Depends, HTTPException
-from langchain_core.messages import AnyMessage, SystemMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AnyMessage, AIMessage, SystemMessage, HumanMessage, ToolMessage
 from motor.motor_asyncio import AsyncIOMotorCollection
 
-from app.db.mongodb import get_database
+from langgraph_supervisor import create_supervisor
 from app.api.deps import get_message_collection
 from app.crud.crud_chat_message_mongo import CRUDChatMessageMongo
 from app.core.agent.base import AgentBase
 from app.core.agent.search import SearchAgent
+from app.core.prompt.supervisor import SYSTEM_PROMPT
+from app.core.prompt.planning import PLANNING_PROMPT
+
 # 定义常量
-MEMBERS = ["chat", "search"]
-OPTIONS = ["chat", "search", "FINISH"]
+MEMBERS = ["chat", "search", "planning"]
+OPTIONS = ["chat", "search", "planning", "FINISH"]
 
 
 class AgentState(MessagesState):
@@ -27,7 +30,7 @@ class AgentState(MessagesState):
 
 class Router(TypedDict):
     """路由器类型定义，用于决定下一步操作"""
-    next: Literal["chat", "search", "FINISH"]
+    next: Literal["chat", "search", "planning", "FINISH"]
 
 
 class Supervisor(AgentBase):
@@ -56,6 +59,7 @@ class Supervisor(AgentBase):
         builder.add_node("supervisor", self.supervisor)
         builder.add_node("chat", self.chat)
         builder.add_node("search", SearchAgent().initialize_agent())
+        builder.add_node("planning", self.planning_tool)
 
         # 添加边
         for member in MEMBERS:
@@ -64,8 +68,9 @@ class Supervisor(AgentBase):
         # 添加条件边
         builder.add_conditional_edges("supervisor", lambda state: state["next"])
         builder.add_edge(START, "supervisor")
-        
+
         return builder.compile()
+    
 
     async def async_start_chat(
         self,
@@ -133,7 +138,7 @@ class Supervisor(AgentBase):
             if msg.role == "user":
                 all_messages.append(HumanMessage(content=msg.content))
             elif msg.role == "assistant":
-                all_messages.append(SystemMessage(content=msg.content))
+                all_messages.append(AIMessage(content=msg.content))
         
         # 添加当前用户输入
         all_messages.append(HumanMessage(content=user_input))
@@ -161,11 +166,11 @@ class Supervisor(AgentBase):
         if self.graph:
             for chunk in self.graph.stream(
                 initial_state,
-                stream_mode="values"
+                stream_mode="values",
+                print_mode="debug"
             ):
                 if "messages" in chunk and chunk["messages"]:
                     last_message = chunk["messages"][-1]
-                    print(f"Chat last_message: {last_message}")
                     if hasattr(last_message, 'content'):
                         final_response = last_message.content
         
@@ -220,16 +225,7 @@ class Supervisor(AgentBase):
         Returns:
             包含下一步操作的状态
         """
-        system_prompt = (
-            "You are a supervisor tasked with managing a conversation between the"
-            f" following workers: {MEMBERS}.\n\n"
-            "Each worker has a specific role:\n"
-            "- chat: Responds directly to user inputs using natural language.\n"
-            "Given the following user request, respond with the worker to act next."
-            " Each worker will perform a task and respond with their results and status."
-            " When finished, respond with FINISH."
-        )
-
+        system_prompt = SYSTEM_PROMPT
         messages = [SystemMessage(content=system_prompt)] + state["messages"]
 
         assert self.deepseek_llm is not None, "deepseek_llm should be initialized"
@@ -241,7 +237,7 @@ class Supervisor(AgentBase):
             next_ = END
         
         return {"next": next_}
-
+    
     def chat(self, state: AgentState) -> Dict[str, Sequence[AnyMessage]]:
         """
         聊天节点，生成回复
@@ -254,5 +250,45 @@ class Supervisor(AgentBase):
         """
         assert self.deepseek_llm is not None, "deepseek_llm should be initialized"
         model_response = self.deepseek_llm.invoke(state["messages"])
-        final_response = [HumanMessage(content=model_response.content, name="chatbot")]
+        final_response = [HumanMessage(content=model_response.content, name="chat")]
         return {"messages": final_response}
+
+    def planning_tool(
+        self, state: AgentState
+    ) -> Dict[str, Sequence[AnyMessage]]:
+        """
+        任务规划工具，用于拆解复杂任务为具体的执行步骤
+        
+        Args:
+            state: 当前状态
+            
+        Returns:
+            任务拆解结果
+        """
+        assert self.deepseek_llm is not None, "deepseek_llm should be initialized"
+        
+        try:
+            # 获取最新的用户消息
+            latest_message = ""
+            for msg in reversed(state["messages"]):
+                if hasattr(msg, 'content') and msg.content:
+                    latest_message = msg.content
+                    break
+            
+            # 构建规划提示
+            planning_prompt = f"""
+{PLANNING_PROMPT}
+
+**Task Description:** {latest_message}
+
+Please provide a detailed breakdown of this task.
+"""
+            
+            # 使用 LLM 生成规划结果
+            response = self.deepseek_llm.invoke(planning_prompt)
+            final_response = [AIMessage(content=response.content, name="planning")]
+            return {"messages": final_response}
+            
+        except Exception as e:
+            error_message = [AIMessage(content=f"Planning error: {str(e)}", name="planning")]
+            return {"messages": error_message}

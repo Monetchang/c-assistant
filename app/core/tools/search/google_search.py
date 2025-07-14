@@ -9,9 +9,10 @@ from app.core.config import settings
 class GoogleSearchEngine:
     """Google搜索引擎"""
     
+    @staticmethod
     @tool()
     def perform_search(
-        self, query: str, num_results: int = 10, *args, **kwargs
+        query: str, num_results: int = 10, *args, **kwargs
     ) -> List[SearchItem]:
         """
         执行Google搜索

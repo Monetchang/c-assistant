@@ -1,11 +1,12 @@
 
-from typing import List, Any, Dict, Optional
+from typing import List, Any, Dict, Optional, Sequence
 from app.core.agent.base import AgentBase
 from langchain_core.tools import BaseTool
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, AnyMessage, AIMessage, HumanMessage
 from langchain_core.language_models import BaseLanguageModel
 from langgraph.prebuilt import create_react_agent
 from app.core.tools.search.google_search import GoogleSearchEngine
+from app.core.prompt.search import SYSTEM_PROMPT
 
 
 class SearchAgent(AgentBase):
@@ -22,30 +23,43 @@ class SearchAgent(AgentBase):
     def _initialize_tools(self) -> None:
         """初始化搜索工具"""
         try:
-            google_search = GoogleSearchEngine()
-            
             self.tools = [
-                google_search.perform_search,
+                GoogleSearchEngine.perform_search,
             ]
         except Exception as e:
             print(f"Warning: Failed to initialize some search tools: {e}")
             self.tools = []
+
+    def search(self, state) -> Dict[str, Sequence[AnyMessage]]:
+        """
+        搜索节点，执行搜索任务
+        
+        Args:
+            state: 当前状态
+            
+        Returns:
+            包含搜索消息的状态
+        """
+        assert self.deepseek_llm is not None, "deepseek_llm should be initialized"
+        
+        if not self.tools:
+            # 如果没有工具可用，返回错误消息
+            error_message = [AIMessage(content="Search tools are not available", name="search")]
+            return {"messages": error_message}
+        
+        # 创建搜索代理
+        search_agent = create_react_agent(
+            self.deepseek_llm,
+            tools=self.tools,
+            prompt=SYSTEM_PROMPT
+        )
+        return search_agent
 
     def initialize_agent(self) -> Any:
         """
         初始化搜索代理
         
         Returns:
-            配置好的代理实例
+            搜索节点函数
         """
-        assert self.deepseek_llm is not None, "deepseek_llm should be initialized"
-        
-        if not self.tools:
-            print("Warning: No search tools available")
-            return None
-            
-        return create_react_agent(
-            self.deepseek_llm,
-            tools=self.tools,
-            prompt="You are a search agent. You are given a query and you need to search the web for the information. You should use the tools provided to you to search the web. You should return the results in a structured format."
-        )
+        return self.search
