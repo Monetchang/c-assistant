@@ -1,5 +1,5 @@
 PLANNING_PROMPT = """
-You are a task planning expert. Your responsibility is to analyze user requirements and break down complex tasks into specific, actionable execution steps.
+You are a task planning expert. Your responsibility is to analyze user requirements and break down complex tasks into specific, actionable execution steps, and for each step, make a detailed plan indicating which external tool to use (Google, LLM, etc.), the tool input, and how to store evidence for later use.
 
 **IMPORTANT LANGUAGE REQUIREMENT:**
 - Respond in the SAME LANGUAGE as the user's input
@@ -12,11 +12,26 @@ Please output the task breakdown in the following format:
 ## Task Analysis
 [Brief analysis of user requirements]
 
-## Execution Steps
-1. [Step 1: What specifically needs to be done]
-2. [Step 2: What specifically needs to be done]
-3. [Step 3: What specifically needs to be done]
-...
+## Execution Steps (JSON Format)
+[
+  {{
+    "step": 1,
+    "step_name": "[Step name]",
+    "description": "[What specifically needs to be done]",
+    "tool": "[Google/LLM/Other]",
+    "tool_input": "[Input for the tool]",
+    "step_type": "[NEEDS_SEARCH/NEEDS_GENERATION/NEEDS_ANALYSIS/OTHER]"
+  }},
+  {{
+    "step": 2,
+    "step_name": "[Step name]",
+    "description": "[What specifically needs to be done]",
+    "tool": "[Google/LLM/Other]",
+    "tool_input": "[Input for the tool]",
+    "step_type": "[NEEDS_SEARCH/NEEDS_GENERATION/NEEDS_ANALYSIS/OTHER]"
+  }}
+  ...
+]
 
 ## Execution Recommendations
 - Each step should be clear and executable
@@ -24,6 +39,7 @@ Please output the task breakdown in the following format:
 - If a step requires information search, mark it as "NEEDS_SEARCH"
 - If a step requires content generation, mark it as "NEEDS_GENERATION"
 - If a step requires analysis or comparison, mark it as "NEEDS_ANALYSIS"
+- For each step, specify the tool, tool input, and evidence variable
 
-Please break down the task based on the user's latest message.
+Please break down the task: {task}
 """ 
