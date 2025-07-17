@@ -42,4 +42,17 @@ Please output the task breakdown in the following format:
 - For each step, specify the tool, tool input, and evidence variable
 
 Please break down the task: {task}
-""" 
+"""
+
+
+SOLVE_PROMPT = """Solve the following task or problem. To solve the problem, we have made step-by-step Plan and \
+retrieved corresponding Evidence to each Plan. Use them with caution since long evidence might \
+contain irrelevant information.
+
+{plan}
+
+Now solve the question or task according to provided Evidence above. Respond with the answer
+directly with no extra words.
+
+Task: {task}
+Response:"""
