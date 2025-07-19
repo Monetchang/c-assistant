@@ -9,7 +9,7 @@ from langgraph.prebuilt import create_react_agent
 from app.core.agent.base import AgentBase
 from app.core.config import settings
 from app.core.prompt.search import SYSTEM_PROMPT
-from app.core.tools.search.google_search import GoogleSearchEngine
+from app.core.tools.search.tavily_search import TavilySearchEngine
 
 
 class SearchAgent(AgentBase):
@@ -30,7 +30,7 @@ class SearchAgent(AgentBase):
         """初始化搜索工具"""
         try:
             self.tools = [
-                GoogleSearchEngine.perform_search,
+                TavilySearchEngine.perform_search,
             ]
         except Exception as e:
             print(f"Warning: Failed to initialize some search tools: {e}")

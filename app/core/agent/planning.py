@@ -12,7 +12,10 @@ from app.core.agent.base import AgentBase
 from app.core.config import settings
 from app.core.prompt.planning import PLANNING_PROMPT, SOLVE_PROMPT
 from app.core.prompt.search import SYSTEM_PROMPT
-from app.core.tools.search.google_search import GoogleSearchEngine
+from app.core.tools.search.tavily_search import TavilySearchEngine
+from app.core.tools.topic import TopicGenerator
+from app.core.tools.summary import SummaryTool
+from app.core.tools.writer import WriterTool
 
 
 class ReWOO(TypedDict):
@@ -24,26 +27,38 @@ class ReWOO(TypedDict):
 
 
 class PlanningAgent(AgentBase):
-    """规划代理类，用于拆解复杂任务"""
+    """规划代理类，用于任务规划和步骤执行"""
 
     graph: Optional[Any] = None
-
+    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         if self.deepseek_llm is None:
             os.environ["DEEPSEEK_API_KEY"] = settings.DEEPSEEK_API_KEY
             self.deepseek_llm = ChatDeepSeek(model="deepseek-chat")
+        # 初始化工具
+        self._initialize_tools()
         self.graph = self.initialize_agent()
+
+    def _initialize_tools(self) -> None:
+        """初始化各种工具"""
+        try:
+            self.tavily_search = TavilySearchEngine()
+            self.topic_generator = TopicGenerator()
+            self.summary_tool = SummaryTool()
+            self.writer_tool = WriterTool()
+        except Exception as e:
+            print(f"Warning: Failed to initialize some tools: {e}")
 
     def planning(self, state) -> Dict[str, Any]:
         """
-        规划节点，拆解复杂任务
-
+        规划任务，将复杂任务分解为执行步骤
+        
         Args:
             state: 当前状态
 
         Returns:
-            包含规划结果的状态
+            任务规划结果
         """
         # 确保 task 是字符串
         task = str(state["task"])
@@ -63,7 +78,13 @@ class PlanningAgent(AgentBase):
 
     def execute_step(self, state: ReWOO) -> Dict[str, Any]:
         """
-        执行步骤
+        执行单个步骤
+        
+        Args:
+            state: 当前状态
+            
+        Returns:
+            步骤执行结果
         """
         assert self.deepseek_llm is not None, "deepseek_llm should be initialized"
         _step = self._get_current_task(state)
@@ -78,37 +99,61 @@ class PlanningAgent(AgentBase):
             print(f"replace {k} with {v}")
             current_step["tool_input"] = current_step["tool_input"].replace(k, v)
 
-        if current_step["step_type"] == "NEEDS_SEARCH":
-            if current_step["tool"] == "Google":
-                search_agent = create_react_agent(
-                    self.deepseek_llm,
-                    tools=[GoogleSearchEngine.perform_search],
-                    prompt=SYSTEM_PROMPT,
-                )
-                inputs = {
-                    "messages": [
-                        {"role": "user", "content": current_step["tool_input"]}
-                    ]
-                }
-                result = search_agent.invoke(inputs)
-            else:
-                raise ValueError(f"Invalid tool: {current_step['tool']}")
-        elif current_step["step_type"] == "NEEDS_GENERATION":
-            if current_step["tool"] == "LLM":
-                result = self.deepseek_llm.invoke(current_step["tool_input"])
-            else:
-                raise ValueError(f"Invalid tool: {current_step['tool']}")
-        elif current_step["step_type"] == "NEEDS_ANALYSIS":
-            if current_step["tool"] == "LLM":
-                result = self.deepseek_llm.invoke(current_step["tool_input"])
-            else:
-                raise ValueError(f"Invalid tool: {current_step['tool']}")
-        else:
-            raise ValueError(f"Invalid step type: {current_step['step_type']}")
+        # 根据工具类型执行不同的操作
+        tool = current_step.get("tool", "")
+        tool_input = current_step.get("tool_input", "")
+        
+        try:
+            if tool == "Search":
+                result = self._execute_search(tool_input)
+            elif tool == "Topic":
+                result = self._execute_topic(tool_input)
+            elif tool == "Summary":
+                result = self._execute_summary(tool_input)
+            elif tool == "Writer":
+                result = self._execute_writer(tool_input)
+            elif tool == "LLM":
+                result = self.deepseek_llm.invoke(tool_input)
+           
+        except Exception as e:
+            result = f"Error executing {tool}: {str(e)}"
 
         print("execute_step result:", result)
         _results[current_step["step_name"]] = str(result)
         return {"results": _results}
+
+    def _execute_search(self, query: str) -> str:
+        """执行搜索操作"""
+        try:
+            search_results = self.tavily_search.perform_search(query)
+            return f"Search results for '{query}': {search_results}"
+        except Exception as e:
+            return f"Search error: {str(e)}"
+
+    def _execute_topic(self, requirement: str) -> str:
+        """执行选题生成"""
+        try:
+            topics = self.topic_generator.generate_topics(requirement)
+            return f"Generated topics for '{requirement}': {topics}"
+        except Exception as e:
+            return f"Topic generation error: {str(e)}"
+
+    def _execute_summary(self, content: str) -> str:
+        """执行内容摘要"""
+        try:
+            summary = self.summary_tool.summarize(content)
+            return f"Summary: {summary}"
+        except Exception as e:
+            return f"Summary error: {str(e)}"
+
+    def _execute_writer(self, topic: str) -> str:
+        """执行文章写作"""
+        try:
+            # 直接根据主题写文章
+            article = self.writer_tool.write_article_from_topic(topic)
+            return f"Article for '{topic}': {article}"
+        except Exception as e:
+            return f"Writing error: {str(e)}"
 
     def solve(self, state: ReWOO) -> Any:
         """
@@ -200,9 +245,8 @@ class PlanningAgent(AgentBase):
         )
 
         final_response = ""
-        compiled_graph = self.graph
-        if compiled_graph is not None:
-            for chunk in compiled_graph.stream(
+        if self.graph is not None:
+            for chunk in self.graph.stream(
                 initial_state, stream_mode="values", print_mode="debug"
             ):
                 if "messages" in chunk and chunk["messages"]:
