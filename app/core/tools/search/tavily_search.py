@@ -1,8 +1,10 @@
 from typing import List
 from app.core.tools.search.base import SearchItem
 from langchain_core.tools import tool
-from langchain_community.tools import TavilySearchResults
+from langchain_tavily import TavilySearch
 from app.core.config import settings
+import os
+import getpass
 
 
 class TavilySearchEngine:
@@ -24,25 +26,69 @@ class TavilySearchEngine:
             搜索结果列表
         """
         try:
+            os.environ["TAVILY_API_KEY"] = settings.TAVILY_API_KEY
+  
             # 使用Tavily搜索工具
-            search_tool = TavilySearchResults(
-                api_key=settings.TAVILY_API_KEY,
-                max_results=num_results
+            search_tool = TavilySearch(
+                max_results=num_results,
+                topic="general",
             )
             
             # 执行搜索
             search_results = search_tool.invoke({"query": query})
             
-            # 转换结果为SearchItem格式
-            results = []
-            for item in search_results:
-                results.append(SearchItem(
-                    title=item.get('title', 'No title'),
-                    link=item.get('url', ''),
-                    summary=item.get('content', '')
-                ))
+            print("search_results ===>", search_results)
             
-            return results
+            # 解析TavilySearch返回的结果
+            if isinstance(search_results, dict):
+                # 如果返回的是字典，提取results数组
+                results_list = search_results.get('results', [])
+                results = []
+                for item in results_list:
+                    if isinstance(item, dict):
+                        results.append(SearchItem(
+                            title=item.get('title', 'No title'),
+                            link=item.get('url', ''),
+                            summary=item.get('content', '')
+                        ))
+                    else:
+                        results.append(SearchItem(
+                            title="Search Result",
+                            link="",
+                            summary=str(item)
+                        ))
+                return results
+            elif isinstance(search_results, str):
+                # 如果返回的是字符串，直接返回
+                return [SearchItem(
+                    title="Search Results",
+                    link="",
+                    summary=search_results
+                )]
+            elif isinstance(search_results, list):
+                # 如果返回的是列表，转换结果为SearchItem格式
+                results = []
+                for item in search_results:
+                    if isinstance(item, dict):
+                        results.append(SearchItem(
+                            title=item.get('title', 'No title'),
+                            link=item.get('url', ''),
+                            summary=item.get('content', '')
+                        ))
+                    else:
+                        results.append(SearchItem(
+                            title="Search Result",
+                            link="",
+                            summary=str(item)
+                        ))
+                return results
+            else:
+                # 其他情况，返回原始结果
+                return [SearchItem(
+                    title="Search Results",
+                    link="",
+                    summary=str(search_results)
+                )]
             
         except Exception as e:
             # 处理错误

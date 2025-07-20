@@ -1,2 +1,6 @@
 .venv/
 app/core/config.py
+
+# Reports and documentation files
+reports/
+*.md

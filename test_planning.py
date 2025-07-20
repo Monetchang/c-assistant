@@ -18,7 +18,7 @@ def test_planning_agent():
     
     planning_agent = PlanningAgent()
     test_tasks = [
-        "帮我写一份关于人工智能发展趋势的报告"
+        "帮我写一份 RAG 的博客"
     ]
     
     print("=" * 60)
