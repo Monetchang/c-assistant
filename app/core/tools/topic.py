@@ -26,7 +26,6 @@ class TopicGenerator:
         os.environ["DEEPSEEK_API_KEY"] = settings.DEEPSEEK_API_KEY
         self.llm = ChatDeepSeek(model="deepseek-chat")
     
-    @tool()
     def generate_topics(
         self, 
         user_requirement: str, 
