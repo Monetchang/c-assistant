@@ -18,6 +18,10 @@ from app.core.tools.summary import SummaryTool
 from app.core.tools.writer import WriterTool
 from app.core.tools.time import TimeTool
 from app.core.tools.documentation import DocumentationTool
+from app.core.context import AgentContext
+
+
+
 
 
 class ReWOO(TypedDict):
@@ -39,9 +43,11 @@ class PlanningAgent(AgentBase):
     time_tool: Optional[Any] = None
     documentation_tool: Optional[Any] = None
     graph: Optional[Any] = None
+    agent_context: Optional[AgentContext] = None
     
-    def __init__(self, **kwargs):
+    def __init__(self, agent_context: Optional[AgentContext] = None, **kwargs):
         super().__init__(**kwargs)
+        self.agent_context = agent_context or AgentContext(agent_id="default")
         if self.deepseek_llm is None:
             os.environ["DEEPSEEK_API_KEY"] = settings.DEEPSEEK_API_KEY
             self.deepseek_llm = ChatDeepSeek(model="deepseek-chat")
@@ -74,11 +80,6 @@ class PlanningAgent(AgentBase):
         # 确保 task 是字符串
         task = str(state["task"])
         
-        # 启动任务记录
-        if self.documentation_tool is not None:
-            self.documentation_tool.start_task(task)
-            print(f"✓ Started documentation for task: {task}")
-        
         prompt_content = PLANNING_PROMPT.format(task=task)
         messages = [SystemMessage(content=prompt_content)]
         # 使用 LLM 生成规划结果
@@ -87,6 +88,27 @@ class PlanningAgent(AgentBase):
         print("planning response:", response.content)
         # 提取步骤
         steps = self._extract_steps_from_json(str(response.content))
+        
+        # 用 step 的 description、step_name 和 tool 初始化 todo
+        todo_items = []
+        for step in steps:
+            step_name = step.get("step_name", "")
+            tool = step.get("tool", "")
+            description = step.get("description", "")
+            todo_item = f"{step_name} ({tool}): {description}"
+            todo_items.append(todo_item)
+        
+        # 如果当前没有 task，则创建新任务，并用 steps 初始化 todo
+        if self.agent_context is not None and not self.agent_context.get_current_task_id():
+            self.agent_context.create_new_task(title=task, description=task, todo_items=todo_items)
+        
+        # 新增：将任务描述写入 context scratchpad
+        if self.agent_context is not None:
+            self.agent_context.add_scratchpad_entry(f"任务描述: {task}")
+        # 新增：将分解的步骤写入 context scratchpad
+        if self.agent_context is not None:
+            for i, step in enumerate(steps):
+                self.agent_context.add_scratchpad_entry(f"Step {i+1}: {step.get('description', '')}")
         # print("Extracted steps:",
         #       json.dumps(steps, ensure_ascii=False, indent=2))
 
@@ -142,20 +164,51 @@ class PlanningAgent(AgentBase):
                     # 先获取当前时间信息
                     time_result = self._execute_time("current")
                     # 然后执行搜索
-                    result = self._execute_search(tool_input)
+                    search_result = self._execute_search(tool_input)
                 else:
-                    result = self._execute_search(tool_input)
+                    search_result = self._execute_search(tool_input)
+                
+                # 将搜索结果写入 context 的 resource 文件
+                if self.agent_context is not None and isinstance(search_result, dict):
+                    search_items = search_result.get("search_items", [])
+                    from app.core.tools.search.base import SearchItem
+                    for item in search_items:
+                        if isinstance(item, SearchItem):
+                            print(f"add resource link ====> {item.title}, {item.link}, {item.summary}")
+                            self.agent_context.add_resource_link(title=item.title, url=item.link, description=item.summary or "")
+                
+                # 记录搜索操作到 scratchpad
+                if self.agent_context is not None:
+                    result = search_result.get("result", str(search_result))
+                    self.agent_context.add_scratchpad_entry(f"搜索[{tool_input}]结果: {result}")
+                
+                # 返回字符串格式的结果
+                result = search_result.get("result", str(search_result))
             elif tool == "Topic":
                 result = self._execute_topic(tool_input)
+                # 记录 topic 结果到 summary
+                if self.agent_context is not None:
+                    self.agent_context.add_summary_entry("选题生成", str(result))
             elif tool == "Summary":
                 result = self._execute_summary(tool_input)
+                # 记录 summary 结果到 summary
+                if self.agent_context is not None:
+                    self.agent_context.add_summary_entry("内容摘要", str(result))
             elif tool == "Writer":
                 result = self._execute_writer(tool_input)
+                # 记录写作结果到 summary
+                if self.agent_context is not None:
+                    self.agent_context.add_summary_entry("写作结果", str(result))
             elif tool == "Time":
                 result = self._execute_time(tool_input)
+                # 记录时间工具结果到 scratchpad
+                if self.agent_context is not None:
+                    self.agent_context.add_scratchpad_entry(f"时间工具[{tool_input}]结果: {result}")
             elif tool == "LLM":
                 result = self.deepseek_llm.invoke(tool_input)
-           
+                # 记录 LLM 调用到 scratchpad
+                if self.agent_context is not None:
+                    self.agent_context.add_scratchpad_entry(f"LLM调用[{tool_input}]结果: {result}")
         except Exception as e:
             result = f"Error executing {tool}: {str(e)}"
 
@@ -186,9 +239,20 @@ class PlanningAgent(AgentBase):
                 print(f"Warning: Failed to document step: {e}")
         
         _results[current_step["step_name"]] = str(result)
+        
+        # 更新 todo 进度 - 标记当前步骤为完成
+        if self.agent_context is not None:
+            step_description = current_step.get("description", "")
+            if step_description:
+                try:
+                    self.agent_context.update_todo_progress([step_description])
+                    print(f"✓ 更新 todo 进度: {step_description}")
+                except Exception as e:
+                    print(f"Warning: Failed to update todo progress: {e}")
+        
         return {"results": _results}
 
-    def _execute_search(self, query: str) -> str:
+    def _execute_search(self, query: str) -> dict:
         """执行搜索操作"""
         try:
             # 检查查询是否包含相对时间词汇，如果是则先处理时间
@@ -196,10 +260,29 @@ class PlanningAgent(AgentBase):
                 processed_query = self.time_tool.process_time_in_query(query)
             else:
                 processed_query = query
-            search_results = TavilySearchEngine.perform_search(processed_query)
-            return f"Search results for '{processed_query}': {search_results}"
+            
+            # 执行搜索，获取 SearchItem 列表
+            search_items = TavilySearchEngine.perform_search(processed_query)
+            
+            # 将 SearchItem 列表转换为字符串格式
+            if isinstance(search_items, list):
+                from app.core.tools.search.base import SearchItem
+                items_str = ", ".join([f"SearchItem(title='{item.title}', link='{item.link}', summary='{item.summary}')" for item in search_items if isinstance(item, SearchItem)])
+                result_str = f"Search results for '{processed_query}':[{items_str}]"
+            else:
+                result_str = f"Search results for '{processed_query}': {search_items}"
+            
+            return {
+                "query": processed_query,
+                "search_items": search_items,
+                "result": result_str
+            }
         except Exception as e:
-            return f"Search error: {str(e)}"
+            return {
+                "query": query,
+                "search_items": [],
+                "result": f"Search error: {str(e)}"
+            }
 
     def _execute_topic(self, requirement: str) -> str:
         """执行选题生成"""
@@ -247,7 +330,7 @@ class PlanningAgent(AgentBase):
                     topic_str = topic.get('topic', str(topic))
                 else:
                     topic_str = str(topic)
-                
+                print(f"execute_writer topic_str ==========> {topic_str}")
                 article = self.writer_tool.write_article_from_topic(topic_str)
                 return f"Article for '{topic_str}': {article}"
             else:
@@ -322,6 +405,10 @@ class PlanningAgent(AgentBase):
                 
             except Exception as e:
                 print(f"Warning: Failed to complete task documentation: {e}")
+        
+        # 新增：将最终结果写入 context summary
+        if self.agent_context is not None:
+            self.agent_context.add_summary_entry("最终结果", str(result.content))
         
         return {"result": result.content}
 

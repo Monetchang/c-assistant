@@ -13,7 +13,7 @@ class TavilySearchEngine:
     @staticmethod
     @tool()
     def perform_search(
-        query: str, num_results: int = 10, *args, **kwargs
+        query: str, num_results: int = 2, *args, **kwargs
     ) -> List[SearchItem]:
         """
         执行Tavily搜索

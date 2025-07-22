@@ -128,7 +128,6 @@ class WriterTool:
         except Exception as e:
             return f"文章生成错误: {str(e)}"
     
-    @tool()
     def write_article_from_topic(
         self, 
         topic: str,

@@ -88,7 +88,6 @@ class SummaryTool:
                 compression_ratio=0.0
             )
     
-    @tool()
     def summarize(
         self, 
         content: str, 

@@ -22,14 +22,14 @@ class AgentContext:
         self.current_task_context: Optional[TaskContext] = None
 
     def create_new_task(
-        self, title: str, description: str, task_id: Optional[str] = None
+        self, title: str, description: str, task_id: Optional[str] = None, todo_items: Optional[List[str]] = None
     ) -> str:
         """创建新任务"""
         if task_id is None:
             task_id = str(uuid.uuid4())
 
         self.current_task_context = self.context_manager.create_task_context(
-            self.agent_id, task_id, title, description
+            self.agent_id, task_id, title, description, todo_items=todo_items
         )
         self.current_task_id = task_id
 

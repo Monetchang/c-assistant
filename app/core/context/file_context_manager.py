@@ -8,7 +8,7 @@ import json
 import os
 import shutil
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -24,11 +24,10 @@ class ContextFile:
     created_at: datetime
     updated_at: datetime
     version: int = 1
-    metadata: Dict[str, Any] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
+        pass
 
 
 @dataclass
@@ -41,14 +40,11 @@ class TaskContext:
     status: str  # pending, in_progress, completed, failed
     created_at: datetime
     updated_at: datetime
-    files: Dict[str, ContextFile] = None
-    metadata: Dict[str, Any] = None
+    files: Dict[str, ContextFile] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
-        if self.files is None:
-            self.files = {}
-        if self.metadata is None:
-            self.metadata = {}
+        pass
 
 
 class FileContextManager:
@@ -77,7 +73,7 @@ class FileContextManager:
         return shared_path
 
     def create_task_context(
-        self, agent_id: str, task_id: str, title: str, description: str
+        self, agent_id: str, task_id: str, title: str, description: str, todo_items: Optional[List[str]] = None
     ) -> TaskContext:
         """创建新的任务上下文"""
         task_path = self._get_task_path(agent_id, task_id)
@@ -93,7 +89,7 @@ class FileContextManager:
         )
 
         # 初始化基础文件
-        self._create_todo_file(task_context, task_path)
+        self._create_todo_file(task_context, task_path, todo_items=todo_items)
         self._create_history_file(task_context, task_path)
         self._create_resource_file(task_context, task_path)
         self._create_summary_file(task_context, task_path)
@@ -104,7 +100,7 @@ class FileContextManager:
 
         return task_context
 
-    def _create_todo_file(self, task_context: TaskContext, task_path: Path):
+    def _create_todo_file(self, task_context: TaskContext, task_path: Path, todo_items: Optional[List[str]] = None):
         """创建待办事项文件"""
         todo_content = f"""# 任务待办事项
 
@@ -119,11 +115,13 @@ class FileContextManager:
 {task_context.description}
 
 ## 待办事项
-- [ ] 分析任务需求
-- [ ] 制定执行计划
-- [ ] 收集必要信息
-- [ ] 执行任务
-- [ ] 总结结果
+"""
+        if todo_items and isinstance(todo_items, list) and len(todo_items) > 0:
+            for item in todo_items:
+                todo_content += f"- [ ] {item}\n"
+        else:
+            todo_content += "- [ ] 分析任务需求\n- [ ] 制定执行计划\n- [ ] 收集必要信息\n- [ ] 执行任务\n- [ ] 总结结果\n"
+        todo_content += f"""
 
 ## 进度记录
 - {task_context.created_at}: 任务创建
@@ -339,9 +337,11 @@ class FileContextManager:
         task_id: str,
         file_type: str,
         content: str,
-        metadata: Dict[str, Any] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ):
-        """更新文件内容"""
+        """更新文件内容，只保留最新版本，不保存历史版本"""
+        if metadata is None:
+            metadata = {}
         task_context = self.load_task_context(agent_id, task_id)
         if not task_context:
             return False
@@ -349,7 +349,7 @@ class FileContextManager:
         if file_type not in task_context.files:
             return False
 
-        # 创建新版本
+        # 只更新当前版本，不保存旧版本
         old_file = task_context.files[file_type]
         new_file = ContextFile(
             name=old_file.name,
@@ -358,19 +358,15 @@ class FileContextManager:
             created_at=old_file.created_at,
             updated_at=datetime.utcnow(),
             version=old_file.version + 1,
-            metadata=metadata or old_file.metadata,
+            metadata=metadata if metadata is not None else old_file.metadata or {},
         )
 
-        # 保存旧版本
-        task_path = self._get_task_path(agent_id, task_id)
-        version_path = task_path / f"{file_type}_v{old_file.version}.md"
-        self._save_file(old_file, version_path)
-
-        # 更新当前版本
+        # 只保存当前版本
         task_context.files[file_type] = new_file
         task_context.updated_at = datetime.utcnow()
 
         # 保存文件
+        task_path = self._get_task_path(agent_id, task_id)
         self._save_file(new_file, task_path / new_file.name)
         self._save_task_metadata(task_context, task_path)
 
@@ -410,14 +406,40 @@ class FileContextManager:
         if not todo_file:
             return False
 
-        # 添加进度更新
-        new_content = (
-            todo_file.content
-            + f"""
+        # 读取当前 todo 内容
+        lines = todo_file.content.split('\n')
+        new_lines = []
+        
+        # 处理每一行
+        for line in lines:
+            # 检查是否是待办事项行
+            if line.strip().startswith('- [ ]'):
+                # 检查是否匹配任何进度更新
+                item_text = line.strip()[4:].strip()  # 移除 "- [ ] "
+                should_mark_complete = False
+                
+                for update in progress_updates:
+                    # 简单的匹配逻辑：如果更新文本包含在待办事项中，或者待办事项包含在更新中
+                    if (update.lower() in item_text.lower() or 
+                        item_text.lower() in update.lower() or
+                        any(word in item_text.lower() for word in update.lower().split() if len(word) > 3)):
+                        should_mark_complete = True
+                        break
+                
+                if should_mark_complete:
+                    # 标记为完成
+                    new_lines.append(line.replace('- [ ]', '- [x]'))
+                else:
+                    new_lines.append(line)
+            else:
+                new_lines.append(line)
+
+        # 添加进度记录
+        new_content = '\n'.join(new_lines)
+        new_content += f"""
 
 ## 进度记录
 """
-        )
         for update in progress_updates:
             new_content += f"- {datetime.utcnow()}: {update}\n"
 

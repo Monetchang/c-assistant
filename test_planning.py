@@ -11,12 +11,15 @@ from langchain_core.messages import HumanMessage
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from app.core.agent.planning import PlanningAgent
+from app.core.context import AgentContext, FileContextManager
 
 
 def test_planning_agent():
     """批量测试 Planning Agent"""
-    
-    planning_agent = PlanningAgent()
+    # 使用测试专用目录，避免污染正式数据
+    context_manager = FileContextManager("./test_agent_contexts")
+    agent_context = AgentContext(agent_id="test_agent", context_manager=context_manager)
+    planning_agent = PlanningAgent(agent_context=agent_context)
     test_tasks = [
         "帮我写一份 RAG 的博客"
     ]
@@ -28,6 +31,7 @@ def test_planning_agent():
     for i, task in enumerate(test_tasks, 1):
         print(f"\n测试 {i}: {task}")
         try:
+            # 只传递任务描述，planning 内部自动创建 context 任务
             result = planning_agent.test_async_start_chat(task)
             print(f"规划结果:\n{result}\n")
         except Exception as e:

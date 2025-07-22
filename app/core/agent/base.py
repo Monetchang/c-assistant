@@ -9,6 +9,9 @@ class AgentBase(BaseModel):
     """代理基类，提供基础的LLM配置和初始化功能"""
     
     deepseek_llm: Optional[ChatDeepSeek] = None
+
+    class Config:
+        arbitrary_types_allowed = True
     
     def __init__(self, **data):
         super().__init__(**data)
