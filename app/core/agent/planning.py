@@ -22,8 +22,18 @@ from app.core.tools.documentation import DocumentationTool
 from app.core.tools.topic_selection import TopicSelectionTool
 from app.core.context import AgentContext
 
+from pydantic import BaseModel, Field
+from typing import List
 
+class TopicSuggestion(BaseModel):
+    title: str
+    description: str
+    keywords: List[str]
+    target_audience: str
+    content_type: str
 
+class TopicList(BaseModel):
+    topics: List[TopicSuggestion]
 
 
 class ReWOO(TypedDict):
@@ -140,12 +150,10 @@ class PlanningAgent(AgentBase):
         # 获取工具和输入
         tool = current_step.get("tool", "")
         tool_input = current_step.get("tool_input", "")
-        requires_user_input = current_step.get("requires_user_input", False)
         
         print(f"Current step: {current_step}")
         print(f"Original tool_input: {tool_input} (type: {type(tool_input)})")
         print(f"Results: {_results}")
-        print(f"Requires user input: {requires_user_input}")
         
         # 替换结果变量
         for k, v in _results.items():
@@ -175,101 +183,76 @@ class PlanningAgent(AgentBase):
         
         print(f"After replacement tool_input: {tool_input} (type: {type(tool_input)})")
         
-        # 检查是否需要用户输入
-        if requires_user_input and tool == "TopicSelection":
-            # 执行选题展示
-            result = self._execute_topic_selection(tool_input)
-            print(f"TopicSelection result: {result}")
-            
-            # 等待用户输入
-            print("\n" + "="*50)
-            print("等待用户选择...")
-            print("="*50)
-            
-            # 这里应该暂停等待用户输入
-            # 在实际应用中，这里可能需要与前端交互或使用其他机制
-            # 暂时使用模拟的用户选择
-            user_choice = input("请选择选题 (1-5): ")
-            if self.topic_selection_tool is not None:
-                selection_result = self.topic_selection_tool.process_user_selection(user_choice)
-                print(f"用户选择结果: {selection_result}")
-                
-                # 将用户选择结果存储到结果中
-                selected_topic = self.topic_selection_tool.get_selected_topic()
-                if selected_topic:
-                    result = f"用户选择了: {selected_topic.title}"
-                    # 将选中的选题信息存储到结果中，供后续步骤使用
-                    _results["selected_topic"] = selected_topic.title
-                    _results["selected_topic_description"] = selected_topic.description
+        # 执行常规工具
+        start_time = time.time()
+        
+        try:
+            if tool == "Search":
+                # 检查搜索查询是否包含相对时间词汇，如果是则先处理时间
+                if self._contains_relative_time_terms(tool_input):
+                    # 先获取当前时间信息
+                    time_result = self._execute_time("current")
+                    # 然后执行搜索
+                    search_result = self._execute_search(tool_input)
                 else:
-                    result = "用户选择失败"
-            else:
-                result = "TopicSelection tool not available"
-        else:
-            # 执行常规工具
-            start_time = time.time()
-            
-            try:
-                if tool == "Search":
-                    # 检查搜索查询是否包含相对时间词汇，如果是则先处理时间
-                    if self._contains_relative_time_terms(tool_input):
-                        # 先获取当前时间信息
-                        time_result = self._execute_time("current")
-                        # 然后执行搜索
-                        search_result = self._execute_search(tool_input)
-                    else:
-                        search_result = self._execute_search(tool_input)
-                    
-                    # 将搜索结果写入 context 的 resource 文件
-                    if self.agent_context is not None and isinstance(search_result, dict):
-                        search_items = search_result.get("search_items", [])
-                        from app.core.tools.search.base import SearchItem
-                        for item in search_items:
-                            if isinstance(item, SearchItem):
-                                print(f"add resource link ====> {item.title}, {item.link}, {item.summary}")
-                                self.agent_context.add_resource_link(title=item.title, url=item.link, description=item.summary or "")
-                    
-                    # 记录搜索操作到 scratchpad
-                    if self.agent_context is not None:
-                        result = search_result.get("result", str(search_result))
-                        self.agent_context.add_scratchpad_entry(f"搜索[{tool_input}]结果: {result}")
-                    
-                    # 返回字符串格式的结果
+                    search_result = self._execute_search(tool_input)
+                
+                # 将搜索结果写入 context 的 resource 文件
+                if self.agent_context is not None and isinstance(search_result, dict):
+                    search_items = search_result.get("search_items", [])
+                    from app.core.tools.search.base import SearchItem
+                    for item in search_items:
+                        if isinstance(item, SearchItem):
+                            self.agent_context.add_resource_link(title=item.title, url=item.link, description=item.summary or "")
+                
+                # 记录搜索操作到 scratchpad
+                if self.agent_context is not None:
                     result = search_result.get("result", str(search_result))
-                elif tool == "Topic":
-                    result = self._execute_topic(tool_input)
-                    # 记录 topic 结果到 summary
-                    if self.agent_context is not None:
-                        self.agent_context.add_summary_entry("选题生成", str(result))
-                    # 确保结果被正确存储
-                    print(f"Topic 工具结果: {result[:200]}...")
-                    print(f"当前 _results: {list(_results.keys())}")
-                elif tool == "Summary":
-                    result = self._execute_summary(tool_input)
-                    # 记录 summary 结果到 summary
-                    if self.agent_context is not None:
-                        self.agent_context.add_summary_entry("内容摘要", str(result))
-                elif tool == "Writer":
-                    result = self._execute_writer(tool_input)
-                    # 记录写作结果到 summary
-                    if self.agent_context is not None:
-                        self.agent_context.add_summary_entry("写作结果", str(result))
-                elif tool == "Time":
-                    result = self._execute_time(tool_input)
-                    # 记录时间工具结果到 scratchpad
-                    if self.agent_context is not None:
-                        self.agent_context.add_scratchpad_entry(f"时间工具[{tool_input}]结果: {result}")
-                elif tool == "LLM":
-                    result = self.deepseek_llm.invoke(tool_input)
-                    # 记录 LLM 调用到 scratchpad
-                    if self.agent_context is not None:
-                        self.agent_context.add_scratchpad_entry(f"LLM调用[{tool_input}]结果: {result}")
-            except Exception as e:
-                result = f"Error executing {tool}: {str(e)}"
+                    self.agent_context.add_scratchpad_entry(f"搜索[{tool_input}]结果: {result}")
+                
+                # 返回字符串格式的结果
+                result = search_result.get("result", str(search_result))
+            elif tool == "Topic":
+                result = self._execute_topic(tool_input)
+                if self.agent_context is not None:
+                    self.agent_context.add_summary_entry("选题", str(result))
+            elif tool == "Summary":
+                result = self._execute_summary(tool_input)
+                # 记录 summary 结果到 summary
+                if self.agent_context is not None:
+                    self.agent_context.add_summary_entry("内容摘要", str(result))
+            elif tool == "Writer":
+                # 自动拼接选题、摘要、搜索信息（如果有）
+                topic_info = _results.get("selected_topic", "")
+                summary_info = _results.get("Summarize research findings", "")
+                search_info = _results.get("Research AI trends", "")
+                if topic_info:
+                    tool_input = f"Topic: {topic_info}\n"
+                if summary_info:
+                    tool_input += f"Summary: {summary_info}\n"
+                if search_info:
+                    tool_input += f"Search: {search_info}\n"
+                # 继续后续 Writer 步骤逻辑
+                result = self._execute_writer(tool_input)
+                # 记录写作结果到 summary
+                if self.agent_context is not None:
+                    self.agent_context.add_summary_entry("写作结果", str(result))
+            elif tool == "Time":
+                result = self._execute_time(tool_input)
+                # 记录时间工具结果到 scratchpad
+                if self.agent_context is not None:
+                    self.agent_context.add_scratchpad_entry(f"时间工具[{tool_input}]结果: {result}")
+            elif tool == "LLM":
+                result = self.deepseek_llm.invoke(tool_input)
+                # 记录 LLM 调用到 scratchpad
+                if self.agent_context is not None:
+                    self.agent_context.add_scratchpad_entry(f"LLM调用[{tool_input}]结果: {result}")
+        except Exception as e:
+            result = f"Error executing {tool}: {str(e)}"
 
-            execution_time = time.time() - start_time
-            print("execute_step result:", result)
-            print(f"Execution time: {execution_time:.2f}s")
+        execution_time = time.time() - start_time
+        print("execute_step result:", result)
+        print(f"Execution time: {execution_time:.2f}s")
 
         # 存储结果
         _results[current_step["step_name"]] = str(result)
@@ -319,21 +302,35 @@ class PlanningAgent(AgentBase):
             }
 
     def _execute_topic(self, requirement: str) -> str:
-        """执行选题生成"""
-        try:
-            if self.topic_generator is not None:
-                # 确保 requirement 是字符串类型
-                if isinstance(requirement, dict):
-                    requirement_str = requirement.get('requirement', str(requirement))
-                else:
-                    requirement_str = str(requirement)
-                
-                topics = self.topic_generator.generate_topics(requirement_str)
-                return f"Generated topics for '{requirement_str}': {topics}"
+        if self.topic_generator is not None:
+            if isinstance(requirement, dict):
+                requirement_str = requirement.get('requirement', str(requirement))
             else:
-                return f"Topic generator not initialized"
-        except Exception as e:
-            return f"Topic generation error: {str(e)}"
+                requirement_str = str(requirement)
+            topics = self.topic_generator.generate_topics(requirement_str)
+            print(f"_execute_topic Topic 工具结果: {topics}")
+            if not topics:
+                raise RuntimeError("未生成选题，程序终止")
+            print("\n可选主题：")
+            for i, topic in enumerate(topics, 1):
+                print(f"{i}. {topic.title} - {topic.description}")
+            user_input = input(f"请选择主题 (1-{len(topics)}): ")
+            try:
+                print(f"user_input: {user_input}")
+                idx = int(user_input) - 1
+                selected_topic = topics[idx] if 0 <= idx < len(topics) else None
+            except Exception:
+                print(f"user_input: {user_input} is not a number")
+                selected_topic = None
+            if selected_topic:
+                print(f"用户选择了: {selected_topic.title}")
+                # 返回包含所有信息的字符串
+                topic_str = f"标题: {selected_topic.title}\n描述: {selected_topic.description}\n关键词: {selected_topic.keywords}\n目标受众: {selected_topic.target_audience}\n内容类型: {selected_topic.content_type}"
+                return topic_str
+            else:
+                return f"topic selection failed"
+        else:
+            return f"topic generator not initialized"
 
     def _execute_summary(self, content: str) -> str:
         """执行内容摘要"""
@@ -364,7 +361,6 @@ class PlanningAgent(AgentBase):
                     topic_str = topic.get('topic', str(topic))
                 else:
                     topic_str = str(topic)
-                print(f"execute_writer topic_str ==========> {topic_str}")
                 article = self.writer_tool.write_article_from_topic(topic_str)
                 return f"Article for '{topic_str}': {article}"
             else:
@@ -388,25 +384,6 @@ class PlanningAgent(AgentBase):
                 return f"Time tool not initialized"
         except Exception as e:
             return f"Time processing error: {str(e)}"
-
-    def _execute_topic_selection(self, topics_data: str) -> str:
-        """执行选题选择"""
-        try:
-            if self.topic_selection_tool is not None:
-                # 确保 topics_data 是字符串类型
-                if isinstance(topics_data, dict):
-                    topics_str = topics_data.get('topics', str(topics_data))
-                else:
-                    topics_str = str(topics_data)
-                
-                print(f"TopicSelection 接收到的数据: {topics_str[:200]}...")
-                
-                presentation = self.topic_selection_tool.present_topics(topics_str)
-                return presentation
-            else:
-                return f"Topic selection tool not initialized"
-        except Exception as e:
-            return f"Topic selection error: {str(e)}"
 
     def _contains_relative_time_terms(self, text: str) -> bool:
         """检查文本是否包含相对时间词汇"""

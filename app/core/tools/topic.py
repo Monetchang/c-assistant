@@ -5,6 +5,7 @@ from langchain_core.messages import SystemMessage
 from langchain_core.tools import tool
 from langchain_deepseek import ChatDeepSeek
 from pydantic import BaseModel, Field
+import re
 
 from app.core.config import settings
 from app.core.prompt.topic import TOPIC_GENERATION_PROMPT
@@ -19,6 +20,12 @@ class TopicSuggestion(BaseModel):
     content_type: str = Field(description="内容类型")
 
 
+class TopicList(BaseModel):
+    topics: List[TopicSuggestion]
+    def __getitem__(self, key):
+        return self.__dict__[key]
+
+
 class TopicGenerator:
     """选题生成工具 - 基于LLM实现"""
     
@@ -26,43 +33,15 @@ class TopicGenerator:
         os.environ["DEEPSEEK_API_KEY"] = settings.DEEPSEEK_API_KEY
         self.llm = ChatDeepSeek(model="deepseek-chat")
     
-    def generate_topics(
-        self, 
-        user_requirement: str, 
-        content_type: str = "article",
-        num_topics: int = 5,
-        *args, **kwargs
-    ) -> str:
-        """
-        根据用户需求生成相关选题
-        
-        Args:
-            user_requirement: 用户需求描述
-            content_type: 内容类型 (article, blog, report, etc.)
-            num_topics: 生成选题数量
-            
-        Returns:
-            选题建议的JSON字符串
-        """
+    def generate_topics(self, requirement: str) -> List[TopicSuggestion]:
         try:
-            # 构建prompt
-            prompt_content = TOPIC_GENERATION_PROMPT.format(
-                user_requirement=user_requirement,
-                content_type=content_type,
-                num_topics=num_topics
-            )
-            
-            # 使用LLM生成选题
-            messages = [SystemMessage(content=prompt_content)]
-            response = self.llm.invoke(messages)
-            
-            # 尝试解析JSON响应
-            try:
-                topics_data = json.loads(str(response.content))
-                return json.dumps(topics_data, ensure_ascii=False, indent=2)
-            except json.JSONDecodeError:
-                # 如果JSON解析失败，返回原始响应
-                return str(response.content)
-            
-        except Exception as e:
-            return f"选题生成错误: {str(e)}" 
+            from langdetect import detect
+            lang = detect(requirement)
+        except Exception:
+            lang = "zh-cn" if re.search(r"[\u4e00-\u9fff]", requirement) else "en"
+        lang_hint = "中文" if lang.startswith("zh") else "English"
+        prompt = f"请根据以下需求，生成3-5个适合的选题建议，内容必须用{lang_hint}：\n需求：{requirement}"
+        messages = [SystemMessage(content=prompt)]
+        response = self.llm.with_structured_output(TopicList).invoke(messages)
+        print(f"generate_topics Topic 工具结果: {response["topics"]}") 
+        return response["topics"]

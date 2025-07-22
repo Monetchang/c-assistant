@@ -11,9 +11,6 @@ You are a professional topic generation expert. Based on user requirements and s
 Please output in JSON format with the following fields:
 - title: Topic title
 - description: Topic description (100-200 words)
-- keywords: List of related keywords (3-5 items)
-- target_audience: Target audience
-- content_type: Content type
 
 **User Requirement:** {user_requirement}
 **Content Type:** {content_type}
