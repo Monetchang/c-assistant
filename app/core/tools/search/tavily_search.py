@@ -37,8 +37,6 @@ class TavilySearchEngine:
             # 执行搜索
             search_results = search_tool.invoke({"query": query})
             
-            print("search_results ===>", search_results)
-            
             # 解析TavilySearch返回的结果
             if isinstance(search_results, dict):
                 # 如果返回的是字典，提取results数组

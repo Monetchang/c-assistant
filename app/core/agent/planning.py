@@ -22,6 +22,7 @@ from app.core.tools.time import TimeTool
 from app.core.tools.topic import TopicGenerator
 from app.core.tools.topic_selection import TopicSelectionTool
 from app.core.tools.writer import WriterTool
+from app.core.tools.markdown_saver import MarkdownSaver
 
 
 class TopicSuggestion(BaseModel):
@@ -57,15 +58,17 @@ class PlanningAgent(AgentBase):
     topic_selection_tool: Optional[TopicSelectionTool] = None
     graph: Optional[Any] = None
     agent_context: Optional[AgentContext] = None
+    markdown_saver: Optional[MarkdownSaver] = None  # 显式声明
 
     def __init__(self, agent_context: Optional[AgentContext] = None, **kwargs):
         super().__init__(**kwargs)
         self.agent_context = agent_context or AgentContext(agent_id="default")
-        if self.deepseek_llm is None:
+        # 确保 deepseek_llm 初始化
+        if not hasattr(self, "deepseek_llm") or self.deepseek_llm is None:
             os.environ["DEEPSEEK_API_KEY"] = settings.DEEPSEEK_API_KEY
             self.deepseek_llm = ChatDeepSeek(model="deepseek-chat")
-        # 初始化工具
-        self._initialize_tools()
+        object.__setattr__(self, "markdown_saver", MarkdownSaver())  # 兼容 pydantic BaseModel
+        self._initialize_tools()  # 只初始化其他工具
         self.graph = self.initialize_agent()
 
     def _initialize_tools(self) -> None:
@@ -78,6 +81,8 @@ class PlanningAgent(AgentBase):
             self.time_tool = TimeTool()
             self.documentation_tool = DocumentationTool()
             self.topic_selection_tool = TopicSelectionTool()
+            # self.markdown_saver = MarkdownSaver()  # 移除，已在 __init__ 初始化
+            print("markdown_saver initialized:", hasattr(self, "markdown_saver"))
         except Exception as e:
             print(f"Warning: Failed to initialize some tools: {e}")
 
@@ -94,14 +99,30 @@ class PlanningAgent(AgentBase):
         # 确保 task 是字符串
         task = str(state["task"])
 
+        # 1. 生成 LLM 规划内容创作主流程（不包含 MarkdownSaver）
         prompt_content = PLANNING_PROMPT.format(task=task)
         messages = [SystemMessage(content=prompt_content)]
-        # 使用 LLM 生成规划结果
-        assert self.deepseek_llm is not None, "deepseek_llm should be initialized"
-        response = self.deepseek_llm.invoke(messages)
-        print("planning response:", response.content)
-        # 提取步骤
-        steps = self._extract_steps_from_json(str(response.content))
+        if self.deepseek_llm is not None:
+            response = self.deepseek_llm.invoke(messages)
+            steps = self._extract_steps_from_json(str(response.content))
+        else:
+            steps = []
+
+        # 2. 自动在最后一个 Writer 步骤后插入 MarkdownSaver 步骤（不让 LLM 规划）
+        last_writer_idx = None
+        for i, step in enumerate(steps):
+            if step.get("tool") == "Writer":
+                last_writer_idx = i
+        if last_writer_idx is not None:
+            markdown_step = {
+                "step": len(steps) + 1,
+                "step_name": "Save as Markdown",
+                "description": "Save the final article as a markdown file",
+                "tool": "MarkdownSaver",
+                "tool_input": f"Article from step {last_writer_idx+1}",
+                "step_type": "NEEDS_SAVE"
+            }
+            steps.insert(last_writer_idx + 1, markdown_step)
 
         # 用 step 的 description、step_name 和 tool 初始化 todo
         todo_items = []
@@ -227,7 +248,7 @@ class PlanningAgent(AgentBase):
                 # 返回字符串格式的结果
                 result = search_result.get("result", str(search_result))
             elif tool == "Topic":
-                result = self._execute_topic(tool_input)
+                result = self._execute_topic(tool_input, state.get('task'))
                 if self.agent_context is not None:
                     self.agent_context.add_summary_entry("选题", str(result))
             elif tool == "Summary":
@@ -265,6 +286,22 @@ class PlanningAgent(AgentBase):
                     self.agent_context.add_scratchpad_entry(
                         f"LLM调用[{tool_input}]结果: {result}"
                     )
+            elif tool == "MarkdownSaver":
+                # 获取上一步 Writer 的内容
+                writer_result = None
+                # 尝试从 _results 中获取上一步 Writer 的输出
+                for step in reversed(state["steps"][:_step-1]):
+                    if step.get("tool") == "Writer":
+                        writer_result = _results.get(step.get("step_name"), None)
+                        if writer_result:
+                            break
+                article_content = writer_result or tool_input
+                filename = f"{state.get('task', 'article')}.md"
+                print(f"将保存 markdown 文件: {filename}")
+                print(f"内容预览: {str(article_content)[:100]}")
+                path = self.markdown_saver.save(str(article_content), filename)
+                print(f"已保存到: {path}")
+                result = f"Markdown saved to: {path}"
         except Exception as e:
             result = f"Error executing {tool}: {str(e)}"
 
@@ -328,38 +365,45 @@ class PlanningAgent(AgentBase):
                 "result": f"Search error: {str(e)}",
             }
 
-    def _execute_topic(self, requirement: str) -> str:
+    def _execute_topic(self, requirement: str, user_query: Optional[str] = None) -> str:
         if self.topic_generator is not None:
             if isinstance(requirement, dict):
                 requirement_str = requirement.get("requirement", str(requirement))
             else:
                 requirement_str = str(requirement)
-            topics = self.topic_generator.generate_topics(requirement_str)
+            topics = self.topic_generator.generate_topics(requirement_str, user_query or "")
             print(f"_execute_topic Topic 工具结果: {topics}")
             if not topics:
                 raise RuntimeError("未生成选题，程序终止")
             print("\n可选主题：")
             for i, topic in enumerate(topics, 1):
                 print(f"{i}. {topic.title} - {topic.description}")
-            try:
-                user_input = input(f"请选择主题 (1-{len(topics)}): ")
-                idx = int(user_input) - 1
-                selected_topic = topics[idx] if 0 <= idx < len(topics) else None
-            except EOFError:
-                print("输入流已关闭，无法读取输入。")
-                selected_topic = None
-            except Exception:
-                print(f"user_input: {user_input} is not a number")
-                selected_topic = None
+            while True:
+                try:
+                    user_input = input(f"请选择主题 (1-{len(topics)}): ").strip()
+                    if not user_input:  # 如果用户直接按回车（空输入），则重新提示
+                        continue  # 忽略回车，继续循环
+                    
+                    idx = int(user_input) - 1  # 尝试转换为整数
+                    if 0 <= idx < len(topics):  # 检查索引是否有效
+                        selected_topic = topics[idx]
+                        break  # 输入有效，退出循环
+                    else:
+                        print(f"请输入 1-{len(topics)} 之间的数字！")
+                except ValueError:  # 如果输入的不是数字
+                    print("请输入有效的数字！")
+                except Exception as e:  # 其他未知错误
+                    print(f"发生错误: {e}")
+                    selected_topic = topics[0] if topics else None  # 出错时默认选择第一个
+                    break
             if selected_topic:
                 print(f"用户选择了: {selected_topic.title}")
-                # 返回包含所有信息的字符串
                 topic_str = f"标题: {selected_topic.title}\n描述: {selected_topic.description}\n关键词: {selected_topic.keywords}\n目标受众: {selected_topic.target_audience}\n内容类型: {selected_topic.content_type}"
                 return topic_str
             else:
-                return f"topic selection failed"
+                raise RuntimeError("用户选择失败，程序终止")
         else:
-            return f"topic generator not initialized"
+            raise RuntimeError("未初始化 topic_generator，程序终止")
 
     def _execute_summary(self, content: str) -> str:
         """执行内容摘要"""

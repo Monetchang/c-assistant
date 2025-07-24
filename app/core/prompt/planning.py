@@ -23,6 +23,7 @@ You are a task planning expert. Your responsibility is to analyze user requireme
   - Step 3: For the selected topic, perform multiple searches from different perspectives (multi-angle Search).
   - Step 4: Use Writer tool to write the article based on the multi-angle search results.
   - Step 5: Use Writer tool again to polish and refine the article.
+  - Step 6: Use MarkdownSaver tool to save the final article as a markdown file.
 - For other tasks:
   - Plan steps according to the task requirements, using only the tools needed.
 
@@ -37,14 +38,15 @@ You are a task planning expert. Your responsibility is to analyze user requireme
   //   3. Search (multi-angle, for selected topic)
   //   4. Writer (draft)
   //   5. Writer (polish)
+  //   6. MarkdownSaver (save as markdown file)
   // For other tasks, plan steps as needed.
   {{
     "step": 1,
     "step_name": "[Step name]",
     "description": "[What specifically needs to be done]",
-    "tool": "[Search/Topic/Summary/Writer/LLM]",
+    "tool": "[Search/Topic/Summary/Writer/MarkdownSaver/LLM]",
     "tool_input": "[Input for the tool]",
-    "step_type": "[NEEDS_SEARCH/NEEDS_GENERATION/NEEDS_ANALYSIS/NEEDS_WRITING/OTHER]"
+    "step_type": "[NEEDS_SEARCH/NEEDS_GENERATION/NEEDS_ANALYSIS/NEEDS_WRITING/NEEDS_SAVE/OTHER]"
   }},
   ...
 ]
