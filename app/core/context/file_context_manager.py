@@ -73,9 +73,14 @@ class FileContextManager:
         return shared_path
 
     def create_task_context(
-        self, agent_id: str, task_id: str, title: str, description: str, todo_items: Optional[List[str]] = None
+        self,
+        agent_id: str,
+        task_id: str,
+        title: str,
+        description: str,
+        todo_items: Optional[List[str]] = None,
     ) -> TaskContext:
-        """创建新的任务上下文"""
+        """创建新的任务上下文（只创建 todo.md 和 resource_links.txt）"""
         task_path = self._get_task_path(agent_id, task_id)
 
         # 创建任务上下文
@@ -88,19 +93,21 @@ class FileContextManager:
             updated_at=datetime.utcnow(),
         )
 
-        # 初始化基础文件
+        # 只初始化 todo 文件和 resource_links.txt
         self._create_todo_file(task_context, task_path, todo_items=todo_items)
-        self._create_history_file(task_context, task_path)
         self._create_resource_file(task_context, task_path)
-        self._create_summary_file(task_context, task_path)
-        self._create_scratchpad_file(task_context, task_path)
 
         # 保存任务元数据
         self._save_task_metadata(task_context, task_path)
 
         return task_context
 
-    def _create_todo_file(self, task_context: TaskContext, task_path: Path, todo_items: Optional[List[str]] = None):
+    def _create_todo_file(
+        self,
+        task_context: TaskContext,
+        task_path: Path,
+        todo_items: Optional[List[str]] = None,
+    ):
         """创建待办事项文件"""
         todo_content = f"""# 任务待办事项
 
@@ -372,6 +379,24 @@ class FileContextManager:
 
         return True
 
+    def append_to_task_file(
+        self, agent_id: str, task_id: str, file_type: str, append_text: str
+    ):
+        """向指定类型的任务文件追加内容（如 todo.md）"""
+        task_context = self.load_task_context(agent_id, task_id)
+        if not task_context:
+            return False
+        if file_type not in task_context.files:
+            return False
+        file_obj = task_context.files[file_type]
+        file_obj.content += append_text
+        file_obj.updated_at = datetime.utcnow()
+        # 保存文件
+        task_path = self._get_task_path(agent_id, task_id)
+        self._save_file(file_obj, task_path / file_obj.name)
+        self._save_task_metadata(task_context, task_path)
+        return True
+
     def add_chat_message(self, agent_id: str, task_id: str, role: str, content: str):
         """添加聊天消息到历史记录"""
         task_context = self.load_task_context(agent_id, task_id)
@@ -407,35 +432,41 @@ class FileContextManager:
             return False
 
         # 读取当前 todo 内容
-        lines = todo_file.content.split('\n')
+        lines = todo_file.content.split("\n")
         new_lines = []
-        
+
         # 处理每一行
         for line in lines:
             # 检查是否是待办事项行
-            if line.strip().startswith('- [ ]'):
+            if line.strip().startswith("- [ ]"):
                 # 检查是否匹配任何进度更新
                 item_text = line.strip()[4:].strip()  # 移除 "- [ ] "
                 should_mark_complete = False
-                
+
                 for update in progress_updates:
                     # 简单的匹配逻辑：如果更新文本包含在待办事项中，或者待办事项包含在更新中
-                    if (update.lower() in item_text.lower() or 
-                        item_text.lower() in update.lower() or
-                        any(word in item_text.lower() for word in update.lower().split() if len(word) > 3)):
+                    if (
+                        update.lower() in item_text.lower()
+                        or item_text.lower() in update.lower()
+                        or any(
+                            word in item_text.lower()
+                            for word in update.lower().split()
+                            if len(word) > 3
+                        )
+                    ):
                         should_mark_complete = True
                         break
-                
+
                 if should_mark_complete:
                     # 标记为完成
-                    new_lines.append(line.replace('- [ ]', '- [x]'))
+                    new_lines.append(line.replace("- [ ]", "- [x]"))
                 else:
                     new_lines.append(line)
             else:
                 new_lines.append(line)
 
         # 添加进度记录
-        new_content = '\n'.join(new_lines)
+        new_content = "\n".join(new_lines)
         new_content += f"""
 
 ## 进度记录

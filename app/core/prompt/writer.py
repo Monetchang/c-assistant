@@ -1,40 +1,50 @@
 OUTLINE_GENERATION_PROMPT = """
-You are a professional article outline generation expert. Based on the given topic and requirements, create a clear, logical, and well-structured outline.
+你是一位专业的文章大纲生成专家，具有丰富的学术和商业写作经验。你的任务是基于给定的主题和要求，创建一个清晰、逻辑性强、结构完善的文章大纲。
 
-**Task Requirements:**
-- Analyze the topic and determine the core viewpoints of the article
-- Design a reasonable article structure
-- Each section should have a clear title and description
-- Ensure logical coherence between sections
-- Consider target audience and content type
+**专业要求：**
+- 深入分析主题，确定文章的核心观点和论述重点
+- 设计合理的文章结构，确保各部分之间的逻辑连贯性
+- 每个章节都应具有明确的标题和详细的内容描述
+- 考虑目标受众的知识水平和阅读习惯
+- 根据内容类型调整大纲的深度和广度
+- 确保大纲具有可执行性，为后续写作提供明确指导
 
-**Output Format:**
-Please output in JSON format with the following fields:
-- title: Article title
-- introduction: Introduction section description
-- sections: List of sections, each containing title and description
-- conclusion: Conclusion section description
+**输出格式：**
+请严格按照以下JSON格式输出：
+{{
+    "title": "文章标题",
+    "introduction": "引言部分的内容描述和目标",
+    "sections": [
+        {{
+            "title": "章节标题",
+            "description": "该章节的详细内容描述"
+        }}
+    ],
+    "conclusion": "结论部分的内容描述和总结要点"
+}}
 
-**Topic:** {topic}
-**Content Type:** {content_type}
-**Target Length:** {target_length}
+**主题信息：**
+- 主题：{topic}
+- 内容类型：{content_type}
+- 目标长度：{target_length}
 
-Please generate a high-quality article outline:
+请基于以上信息生成一个高质量、专业化的文章大纲：
 """
 
 ARTICLE_WRITING_PROMPT = """
-You are a professional article writing expert. Based on the provided outline and related information, create high-quality article content.
+你是一位资深的文章写作专家，具有丰富的创作经验和深厚的学术背景。你的任务是基于提供的大纲和相关信息，创作出高质量、结构完整、内容丰富的文章。
 
-**Task Requirements:**
-- Strictly follow the outline structure for writing
-- Content should be rich, in-depth, and valuable
-- Language should be clear, fluent, and readable
-- Maintain professional writing style
-- Ensure clear logic and well-defined viewpoints
+**写作要求：**
+- 严格遵循提供的大纲结构进行写作，确保逻辑清晰
+- 内容应当深入、全面、具有价值，避免表面化描述
+- 语言表达应当准确、流畅、易读，符合专业写作标准
+- 保持一致的写作风格，确保文章的整体性和连贯性
+- 确保观点明确，论述有力，结论合理
+- 适当引用和整合相关信息，增强文章的可信度
 
-**Writing Style:** {style}
-**Outline:** {outline}
-**Additional Information:** {additional_info}
+**写作风格：** {style}
+**文章大纲：** {outline}
+**补充信息：** {additional_info}
 
-Please create complete article content based on the above information. Output the article text directly without JSON format:
-""" 
+请基于以上信息创作完整的文章内容。直接输出文章文本，无需JSON格式：
+"""

@@ -1,18 +1,19 @@
 import json
 import os
+import re
 from typing import List, Optional
+
 from langchain_core.messages import SystemMessage
 from langchain_core.tools import tool
 from langchain_deepseek import ChatDeepSeek
 from pydantic import BaseModel, Field
-import re
 
 from app.core.config import settings
-from app.core.prompt.topic import TOPIC_GENERATION_PROMPT
 
 
 class TopicSuggestion(BaseModel):
     """选题建议模型"""
+
     title: str = Field(description="选题标题")
     description: str = Field(description="选题描述")
     keywords: List[str] = Field(description="相关关键词")
@@ -22,21 +23,25 @@ class TopicSuggestion(BaseModel):
 
 class TopicList(BaseModel):
     topics: List[TopicSuggestion]
+
     def __getitem__(self, key):
         return self.__dict__[key]
 
 
 class TopicGenerator:
     """选题生成工具 - 基于LLM实现"""
-    
+
     def __init__(self):
         os.environ["DEEPSEEK_API_KEY"] = settings.DEEPSEEK_API_KEY
         self.llm = ChatDeepSeek(model="deepseek-chat")
-    
-    def generate_topics(self, requirement: str, lang_detect_str: Optional[str] = None) -> List[TopicSuggestion]:
+
+    def generate_topics(
+        self, requirement: str, lang_detect_str: Optional[str] = None
+    ) -> List[TopicSuggestion]:
         lang_detect_str = lang_detect_str or requirement
         try:
             from langdetect import detect
+
             lang = detect(lang_detect_str)
         except Exception:
             lang = "zh-cn" if re.search(r"[\u4e00-\u9fff]", lang_detect_str) else "en"

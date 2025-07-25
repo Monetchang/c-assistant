@@ -5,12 +5,11 @@
 
 import os
 import sys
-from langchain_core.messages import HumanMessage
 
 # 添加项目根目录到 Python 路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from app.core.agent.planning import PlanningAgent
+from app.core.agent.planning import WriterPlanningAgent
 from app.core.context import AgentContext, FileContextManager
 
 
@@ -19,15 +18,13 @@ def test_planning_agent():
     # 使用测试专用目录，避免污染正式数据
     context_manager = FileContextManager("./test_agent_contexts")
     agent_context = AgentContext(agent_id="test_agent", context_manager=context_manager)
-    planning_agent = PlanningAgent(agent_context=agent_context)
-    test_tasks = [
-        "帮我写一份 RAG 的博客"
-    ]
-    
+    planning_agent = WriterPlanningAgent(agent_context=agent_context)
+    test_tasks = ["帮我写一份关于 Transform 架构的技术博客"]
+
     print("=" * 60)
     print("Planning Agent 批量测试")
     print("=" * 60)
-    
+
     for i, task in enumerate(test_tasks, 1):
         print(f"\n测试 {i}: {task}")
         try:
@@ -37,6 +34,7 @@ def test_planning_agent():
         except Exception as e:
             print(f"错误: {e}")
             import traceback
+
             traceback.print_exc()
 
 
